@@ -1,920 +1,859 @@
-# nsurgn Version 1 Specification Draft
+# nsurgn v1.0 Specification
 
-Status: Draft  
-Version: 1  
-Project name: `nsurgn`  
-Project meaning: namespace surgeon
+Project: `nsurgn`
+Meaning: namespace surgeon
+Release scope: v1.0 foundation
+Primary platform: Linux
+Primary interface: command-line utility
+Core dependency posture: Linux procfs and standard Linux utilities
+
+---
 
 ## 1. Purpose
 
-`nsurgn` is a Linux-native command-line utility for discovering, inspecting, explaining, and entering visible Linux namespace artifacts.
+`nsurgn` is a Linux-native command-line utility for discovering, modeling, classifying, inspecting, and reporting visible Linux namespace artifacts.
 
-Linux does not expose containers as first-class kernel objects. Linux exposes processes, namespaces, cgroups, mounts, root filesystems, file descriptors, signals, and process metadata through interfaces such as `/proc`, `/proc/<pid>/ns/`, `readlink`, `stat`, `ps`, `awk`, `sed`, `grep`, `sort`, `uniq`, `find`, `lsns`, and `nsenter`.
+Linux does not expose containers as first-class kernel objects. It exposes processes, namespaces, cgroups, mounts, root filesystem views, file descriptors, signals, and process metadata through `/proc` and related Linux interfaces.
 
-`nsurgn` MUST report kernel-visible facts. It MUST NOT claim that a namespace artifact is a Docker container, Podman container, Kubernetes pod, Flatpak sandbox, Chrome sandbox, systemd-nspawn instance, bubblewrap process, `unshare` process, or hand-built namespace environment.
+`nsurgn v1.0` establishes the foundation required for all later capabilities:
 
-Runtime command-line evidence MAY be displayed as evidence:
+- process discovery,
+- namespace reading,
+- host profile comparison,
+- artifact grouping,
+- leader selection,
+- classification,
+- target resolution,
+- process listing,
+- reporting,
+- environment diagnostics,
+- stable output and error behavior.
 
-```text
-command evidence: bwrap
-```
+`nsurgn v1.0` must report kernel-visible facts and evidence. It must not claim that an artifact is definitely a Docker container, Podman container, Kubernetes pod, Flatpak sandbox, Chrome sandbox, systemd-nspawn instance, bubblewrap process, `unshare` process, or hand-built namespace environment.
 
-Runtime identity MUST NOT be asserted as truth:
+Runtime and cgroup evidence may be displayed as evidence. It must be framed as evidence, not proof.
 
-```text
-type: Flatpak
-```
+---
 
-## 2. Implementation Scope
+## 2. Product Boundary
 
-Version 1 MUST be implemented as a production-grade Bash script.
+`nsurgn v1.0` is a read-only discovery and inspection release.
 
-The primary executable MUST be a single file named:
+It must not mutate artifact filesystems, control target processes, execute commands in target namespaces, or depend on runtime APIs.
 
-```text
-nsurgn
-```
+The v1.0 boundary is intentional. Later features rely on the correctness of artifact grouping and leader selection. If the model is wrong, later operational commands can act on the wrong target. v1.0 therefore proves the model first.
 
-The script MUST use:
+---
 
-```bash
-#!/usr/bin/env bash
-```
+## 3. Goals
 
-The implementation SHOULD use strict-ish Bash style, including careful error handling without making `/proc` races fatal to whole-command operations such as `list`.
+### 3.1 Discover Namespace Artifacts
 
-The implementation MUST:
+`nsurgn` should group visible processes by namespace relationships and supporting Linux metadata.
 
-- Quote variables and expansions carefully.
-- Use arrays for command construction.
-- Validate all PID input.
-- Treat process names, command lines, and arguments as untrusted text.
-- Handle `/proc` races gracefully.
-- Expect processes to disappear during inspection.
-- Avoid parsing unstable human-formatted output when stable `/proc` data exists.
-- Support test seams through environment variables.
+Default discovery should surface namespace artifacts that differ meaningfully from the host profile. It should not dump every PID by default.
 
-The implementation MUST NOT:
+### 3.2 Classify Honestly
 
-- Use `eval`.
-- Execute text read from process metadata.
-- Depend on container runtime APIs.
-- Require `jq`.
-- Require third-party vendor tools.
+The tool should use evidence-based classifications:
 
-Recommended internal environment override seams:
+- `host`
+- `isolated`
+- `namespace-init`
+- `container-ish`
+- `suspicious`
 
-```bash
-NSURGN_PROC_ROOT="${NSURGN_PROC_ROOT:-/proc}"
-NSURGN_NSENTER_BIN="${NSURGN_NSENTER_BIN:-nsenter}"
-NSURGN_PS_BIN="${NSURGN_PS_BIN:-ps}"
-NSURGN_READLINK_BIN="${NSURGN_READLINK_BIN:-readlink}"
-```
+It must not state that a process group is definitely a container unless the operator provides external confirmation.
 
-Additional seams MAY be added for `stat`, `awk`, `sed`, `grep`, `sort`, `uniq`, `find`, and terminal color detection if needed for deterministic tests.
+### 3.3 Explain the Linux Substrate
 
-## 3. Dependencies
+Reports should expose:
 
-`nsurgn` v1 SHOULD use only standard Linux shell utilities and kernel-provided process metadata.
+- namespace IDs,
+- host namespace differences,
+- cgroup hints,
+- process relationships,
+- leader selection reasons,
+- classification reasons,
+- visible process metadata,
+- target root path when readable.
 
-Allowed dependencies:
+### 3.4 Stay Runtime Independent
 
-- Bash
-- `/proc`
-- `readlink`
-- `stat`
-- `ps`
-- `awk`
-- `sed`
-- `grep`
-- `sort`
-- `uniq`
-- `find`
-- `lsns`, if available, for diagnostics only
-- `nsenter`, for `enter`
-
-`nsurgn` MUST NOT depend on:
+Core functionality must not depend on:
 
 - Docker
 - Podman
 - Kubernetes
-- containerd
-- CRI-O
+- containerd APIs
+- CRI-O APIs
+- `kubectl`
 - `crictl`
 - `ctr`
 - `nerdctl`
 - `runc` APIs
 - `jq`
-- Runtime-specific APIs
-- Third-party vendor tools
+- Python
+- Go dependencies
+- third-party SDKs
 
-## 4. Version 1 Goals
+### 3.5 Provide Scriptable Output
 
-`nsurgn v1` MUST support:
+The command line interface should be useful for both humans and scripts.
 
-1. Discovering visible namespace artifacts.
-2. Listing namespace artifacts.
-3. Inspecting namespace metadata for a PID or artifact.
-4. Explaining namespace isolation evidence.
-5. Showing processes belonging to an artifact.
-6. Safely previewing and executing `nsenter` entry into selected namespaces.
-7. Reporting local capability and dependency diagnostics.
-8. Scriptable output formats.
-9. A full BATS test strategy.
+v1.0 should support:
 
-## 5. Version 1 Non-Goals
+- tab-separated raw record streams,
+- readable terminal tables,
+- structured JSON output,
+- line-oriented NDJSON output where appropriate,
+- stable exit codes,
+- clear error messages.
 
-`nsurgn v1` MUST NOT implement:
+---
 
-- Docker integration
-- Podman integration
-- Kubernetes integration
-- CRI integration
-- Runtime detection as truth
-- Daemon mode
-- Live dashboard mode
-- Curses TUI
-- GUI
-- Process killing
-- Cgroup modification
-- Mount mutation
-- Network mutation
-- Policy enforcement
-- Plugin system
-- Config file system
-- YAML output
-- JSON output unless strict escaping is specified in a future revision
-- Persistent state database
-- Orchestrator behavior
-- Container runtime behavior
+## 4. Non-Goals
 
-## 6. Command Set
+`nsurgn v1.0` is not:
 
-Version 1 MUST define these commands:
+- a Docker replacement,
+- a Podman replacement,
+- a Kubernetes client,
+- a CRI client,
+- a container runtime,
+- a workload scheduler,
+- a container image manager,
+- a sandbox,
+- a privilege escalation tool,
+- a filesystem repair tool,
+- a process control tool,
+- a command execution wrapper,
+- a memory injection tool,
+- a shellcode framework,
+- a ptrace injection framework,
+- a complete forensic suite,
+- proof that a workload is a container.
 
-```bash
+---
+
+## 5. Target Users
+
+Primary users:
+
+- Linux systems engineers
+- SREs
+- platform engineers
+- security engineers
+- incident responders
+- Kubernetes node debuggers
+- runtime engineers
+- infrastructure operators
+- Linux forensic analysts
+
+Expected familiarity:
+
+- Linux processes
+- `/proc`
+- namespaces
+- cgroups
+- mount namespaces
+- PID namespaces
+- host PIDs versus namespace PIDs
+- privilege boundaries
+
+---
+
+## 6. Core Concepts
+
+### 6.1 Process
+
+The fundamental unit of observation is the Linux process. Every artifact discovered by `nsurgn` is composed of one or more visible host PIDs.
+
+### 6.2 Namespace Profile
+
+A namespace profile is the tuple of namespace IDs associated with a process.
+
+Canonical tuple:
+
+```text
+pid_ns
+mnt_ns
+net_ns
+user_ns
+uts_ns
+ipc_ns
+cgroup_ns
+time_ns
+```
+
+Not every kernel exposes every namespace type. Missing namespace fields should be handled gracefully.
+
+### 6.3 Host Profile
+
+The host profile is the namespace profile used as the baseline for comparison.
+
+Default host profile source:
+
+```text
+/proc/1/ns/*
+```
+
+The operator may override this baseline with:
+
+```text
+--host-pid <pid>
+```
+
+### 6.4 Artifact
+
+An artifact is an inferred operational unit composed of one or more processes related by shared namespace membership and supporting metadata.
+
+An artifact is not a kernel object.
+
+An artifact may correspond to:
+
+- a container,
+- a pod component,
+- a systemd service with private namespaces,
+- an LXC guest,
+- a build sandbox,
+- a manually created `unshare` environment,
+- a test harness,
+- a compromised process namespace,
+- something else.
+
+### 6.5 Leader
+
+The leader is the best representative process for an artifact.
+
+Leader selection order:
+
+1. Prefer the process that is PID 1 inside a nested PID namespace.
+2. Otherwise, prefer the oldest process in the artifact.
+3. Otherwise, prefer the lowest host PID.
+
+The leader is used for:
+
+- artifact identity,
+- default inspection target,
+- process metadata summary,
+- target root reporting,
+- classification evidence.
+
+### 6.6 Target Root
+
+The target root is the filesystem view exposed by:
+
+```text
+/proc/<leader_pid>/root
+```
+
+v1.0 may report this path when readable. It must not use it for mutation.
+
+---
+
+## 7. Data Sources
+
+v1.0 may read:
+
+```text
+/proc/<pid>/ns/*
+/proc/<pid>/status
+/proc/<pid>/stat
+/proc/<pid>/cmdline
+/proc/<pid>/comm
+/proc/<pid>/cgroup
+/proc/<pid>/root
+/proc/<pid>/exe
+/proc/<pid>/mountinfo
+```
+
+v1.0 may use standard Linux utilities when available:
+
+```text
+readlink
+stat
+ps
+awk
+sed
+grep
+sort
+uniq
+find
+```
+
+The implementation must tolerate:
+
+- vanished PIDs,
+- permission-denied reads,
+- missing namespace files,
+- unreadable root or executable links,
+- procfs restrictions such as `hidepid`,
+- kernel differences across distributions.
+
+---
+
+## 8. Discovery Model
+
+Discovery steps:
+
+1. Enumerate visible numeric PIDs under `/proc`.
+2. For each PID, read namespace links and process metadata.
+3. Build a namespace profile for each process.
+4. Determine the host namespace profile.
+5. Group processes according to the selected grouping mode.
+6. Select a leader for each group.
+7. Score each group.
+8. Classify each group.
+9. Hide `host` artifacts from default `list` output.
+10. Display namespace artifacts that differ meaningfully from the host profile.
+
+---
+
+## 9. Grouping Modes
+
+### 9.1 `--group profile`
+
+Default.
+
+Group by:
+
+```text
+pid_ns + mnt_ns + net_ns
+```
+
+Rationale:
+
+This balances usefulness and noise. PID, mount, and network namespaces are strong workload-boundary signals without fragmenting too aggressively.
+
+### 9.2 `--group strict`
+
+Group by the full namespace tuple:
+
+```text
+pid_ns + mnt_ns + net_ns + user_ns + uts_ns + ipc_ns + cgroup_ns + time_ns
+```
+
+Useful for forensic precision.
+
+### 9.3 `--group pid`
+
+Group by PID namespace.
+
+Useful for understanding nested PID namespace relationships.
+
+### 9.4 `--group mnt`
+
+Group by mount namespace.
+
+Useful for filesystem-view investigation.
+
+### 9.5 `--group net`
+
+Group by network namespace.
+
+Useful for network isolation mapping.
+
+### 9.6 `--group cgroup`
+
+Group by cgroup-derived hints.
+
+Useful when namespace isolation is weak but cgroup structure is meaningful.
+
+---
+
+## 10. Classification Model
+
+### 10.1 Labels
+
+#### `host`
+
+Same namespace profile as host. Hidden by default.
+
+#### `isolated`
+
+Differs from host in one or more major namespace types.
+
+Major namespace types:
+
+- PID
+- mount
+- network
+- user
+
+#### `namespace-init`
+
+Has a process that is PID 1 inside a non-host PID namespace.
+
+#### `container-ish`
+
+Has namespace isolation plus cgroup, runtime, container ID, overlay, snapshotter, or Kubernetes-style hints.
+
+This is a probability-oriented label, not proof.
+
+#### `suspicious`
+
+Has isolation but no clear runtime hint, or has unusual namespace, cgroup, or process layout.
+
+### 10.2 Suggested Scoring Model
+
+| Signal | Points |
+|---|---:|
+| PID namespace differs from host | +3 |
+| Mount namespace differs from host | +3 |
+| Network namespace differs from host | +2 |
+| User namespace differs from host | +2 |
+| UTS namespace differs from host | +1 |
+| IPC namespace differs from host | +1 |
+| Cgroup namespace differs from host | +1 |
+| Time namespace differs from host | +1 |
+| Process is PID 1 inside nested PID namespace | +4 |
+| Cgroup path contains `kubepods` | +4 |
+| Cgroup path contains `containerd` | +4 |
+| Cgroup path contains `docker` | +4 |
+| Cgroup path contains `crio` | +4 |
+| Cgroup path contains `libpod` | +4 |
+| Cgroup path contains `lxc` | +3 |
+| Cgroup path contains `machine.slice` | +2 |
+| Cgroup path contains long hex container-like ID | +2 |
+| Root filesystem differs from host root | +2 |
+| Mountinfo contains overlay or snapshotter hints | +3 |
+| Mountinfo contains Kubernetes projected or serviceaccount mounts | +2 |
+| Executable path is deleted | +2 |
+| Isolation without runtime hints | suspicious flag |
+
+### 10.3 Classification Rules
+
+Baseline:
+
+```text
+score 0-2:
+  host or weakly isolated
+
+score 3-5:
+  isolated
+
+score 6-8:
+  isolated or namespace-init
+
+score >= 9 with runtime hints:
+  container-ish
+
+score >= 6 without runtime hints:
+  suspicious or isolated, depending on layout
+
+nested PID namespace with ns pid 1:
+  namespace-init
+
+runtime hint + isolation:
+  container-ish
+```
+
+### 10.4 Classification Limitation
+
+A process group can look container-like without being a container. A process group can also be a real container while hiding runtime hints. `nsurgn` reports evidence, not certainty.
+
+---
+
+## 11. v1.0 Command Set
+
+v1.0 defines only foundational read-only commands.
+
+```text
 nsurgn list
-nsurgn inspect <pid|artifact-id>
-nsurgn ps <pid|artifact-id>
-nsurgn explain <pid|artifact-id>
-nsurgn enter <pid|artifact-id>
-nsurgn enter <pid|artifact-id> --dry-run
-nsurgn enter <pid|artifact-id> --yes
-nsurgn enter <pid|artifact-id> --shell /bin/sh
-nsurgn enter --pick
+nsurgn inspect <artifact-id|pid>
+nsurgn ps <artifact-id|pid>
+nsurgn report [<artifact-id|pid>]
+nsurgn map [<artifact-id|pid>]
 nsurgn doctor
 nsurgn version
 nsurgn help
 nsurgn --help
 ```
 
-Version 1 SHOULD also support:
+Global `--help` must be equivalent to `help`.
+
+Invalid commands and invalid options must fail with a usage error.
+
+---
+
+## 12. Global CLI Specification
+
+### 12.1 Syntax
 
 ```bash
-nsurgn list --plain
-nsurgn list --tsv
-nsurgn inspect <target> --kv
-nsurgn explain <target> --plain
+nsurgn [global-options] <command> [command-options] [arguments]
 ```
 
-Global `--help` MUST be equivalent to `help`.
-
-Invalid commands and invalid options MUST fail with `E_BAD_OPTION`.
-
-## 7. Interface Quality
-
-The interface MUST be:
-
-- Fast
-- Clear
-- Safe
-- Scriptable
-- Predictable
-- Useful to Linux operators
-- Copy-pasteable
-
-The interface SHOULD provide:
-
-- Good help text
-- Readable tables
-- Dry-run previews
-- Meaningful errors
-- Minimal decoration
-- Restrained color
-
-The interface MUST avoid:
-
-- Animation
-- Spinner noise
-- Fragile dashboards
-- Unnecessary Unicode
-- Overdone color
-- Terminal-size-dependent layouts
-- `ncurses` behavior
-- Mouse interaction
-
-Human-readable output SHOULD fit typical terminals, but correctness MUST NOT depend on terminal width.
-
-## 8. Output Modes
-
-### 8.1 Human Output
-
-Human output is the default. It SHOULD use readable tables or labeled blocks.
-
-Human output MAY use restrained color only when color is enabled by the rules in Section 18.
-
-Human output is not a stable machine contract.
-
-### 8.2 Plain Output
-
-Plain output MUST be selected by `--plain` where supported.
-
-Plain output MUST:
-
-- Avoid ANSI escapes.
-- Avoid decorative color.
-- Keep the same information content as human output where practical.
-- Remain readable in logs and copy-paste contexts.
-
-### 8.3 TSV Output
-
-TSV output MUST be selected by `--tsv` where supported.
-
-`nsurgn list --tsv` MUST emit a stable header line:
+### 12.2 Global Options
 
 ```text
-artifact_id	leader_pid	user	pids	mnt_ns	pid_ns	net_ns	user_ns	isolation	command
+--group <mode>       Grouping mode: profile, strict, pid, mnt, net, cgroup
+--format <format>    Output format: raw, table, text, json, ndjson
+--verbose            Print resolved paths and decision details
+--quiet              Suppress non-critical warnings
+--no-color           Disable color output
+--host-pid <pid>     Use specific PID as host namespace profile reference
+--include-host       Include host-classified artifacts
+--version            Print version
+--help               Show help
 ```
 
-Additional TSV fields MAY be added only in a future version or behind an explicitly named option. Version 1 MUST keep the above field order stable.
+### 12.3 Artifact Identifier
 
-TSV values MUST be tab-separated. Newlines and tabs in command text MUST be sanitized or escaped so each process or artifact occupies exactly one line.
+Artifacts receive ephemeral IDs per command invocation:
 
-TSV output MUST NOT contain ANSI escapes.
+```text
+A1
+A2
+A3
+...
+```
 
-### 8.4 Key-Value Output
+Commands accepting `<artifact-id|pid>` should accept:
 
-`inspect --kv` MUST emit stable `key=value` lines.
+```text
+A1
+18342
+pid:18342
+```
+
+Rules:
+
+- `A1` means artifact ID.
+- A numeric value means host PID.
+- `pid:18342` explicitly means host PID.
+
+Artifact IDs are not persistent across invocations.
+
+---
+
+## 13. Command Specifications
+
+### 13.1 `nsurgn list`
+
+List namespace-isolated, namespace-init, container-ish, or suspicious artifacts.
+
+Default behavior:
+
+- hide host-equivalent processes,
+- hide ordinary host services with no meaningful isolation,
+- do not dump every PID.
 
 Example:
-
-```text
-pid=1000
-artifact_id=ns-4026532887
-mnt_ns=4026532887
-pid_ns=4026532891
-net_ns=4026532894
-user_ns=4026531837
-```
-
-Values MUST be sanitized so each key-value pair occupies one line.
-
-Key names MUST be lowercase ASCII with underscores.
-
-Key-value output MUST NOT contain ANSI escapes.
-
-## 9. Namespace Artifact Model
-
-A namespace artifact is:
-
-```text
-A group of one or more visible processes that share a selected namespace signature.
-```
-
-The default namespace signature MUST include:
-
-- Mount namespace
-- PID namespace
-- Network namespace
-- User namespace
-
-The implementation MUST also collect and display when available:
-
-- UTS namespace
-- IPC namespace
-- Cgroup namespace
-- Time namespace, if present on the system
-
-The display artifact ID MAY use the mount namespace ID:
-
-```text
-ns-4026532887
-```
-
-However, the mount namespace alone MUST NOT be treated as the complete internal identity. Internally, the artifact signature SHOULD be complete and stable:
-
-```text
-mnt=4026532887|pid=4026532891|net=4026532894|user=4026531837
-```
-
-When two visible artifacts share a mount namespace ID but differ in the complete signature, the implementation MUST preserve them as distinct artifacts internally. The display layer SHOULD disambiguate such collisions, for example by appending a short deterministic suffix.
-
-## 10. Namespace Reading
-
-For each visible numeric PID under `NSURGN_PROC_ROOT`, `nsurgn` SHOULD read namespace symlinks under:
-
-```text
-${NSURGN_PROC_ROOT}/<pid>/ns/
-```
-
-Namespace symlinks typically resolve to values like:
-
-```text
-mnt:[4026532887]
-```
-
-The implementation MUST extract the numeric namespace inode from the symlink target. It MUST treat malformed, missing, unreadable, or vanished namespace links as recoverable per-PID failures during scans.
-
-The implementation MUST validate PIDs as decimal numeric strings and MUST reject empty, negative, signed, fractional, or non-numeric PID input.
-
-## 11. Host Namespace Comparison
-
-Host namespace comparison is a core v1 feature.
-
-`nsurgn` MUST compare target namespace IDs against a host baseline. The preferred baseline is PID 1:
-
-```text
-${NSURGN_PROC_ROOT}/1/ns/<type>
-```
-
-For a target process, output SHOULD include a comparison table like:
-
-```text
-NS TYPE    TARGET        HOST          STATUS
-mnt        4026532887    4026531841    isolated
-pid        4026532891    4026531836    isolated
-net        4026532894    4026531840    isolated
-user       4026531837    4026531837    shared
-uts        4026532888    4026531838    isolated
-ipc        4026532889    4026531839    isolated
-cgroup     4026532890    4026531835    isolated
-```
-
-If PID 1 namespace links are unavailable, `nsurgn` MUST report that host comparison is unavailable and SHOULD continue with target inspection where possible.
-
-Status values SHOULD be:
-
-- `isolated`, when the target namespace ID differs from the host baseline.
-- `shared`, when the target namespace ID matches the host baseline.
-- `unknown`, when either side cannot be read.
-
-## 12. Target Resolution
-
-Commands accepting `<pid|artifact-id>` MUST resolve the target as follows:
-
-1. If the target is a valid numeric PID, inspect that PID directly and derive its artifact signature.
-2. If the target matches an artifact ID format such as `ns-4026532887`, scan visible artifacts and resolve the matching artifact.
-3. If multiple artifacts match a display ID because of a collision, the command MUST fail with a clear ambiguity error or require a more specific future selector.
-
-Artifact ID lookup is necessarily based on currently visible processes. `nsurgn` MUST tolerate the selected artifact disappearing between listing and later inspection.
-
-## 13. `list` Command
-
-`nsurgn list` MUST:
-
-- Scan visible numeric PIDs under `/proc` or `NSURGN_PROC_ROOT`.
-- Read namespace links under `/proc/<pid>/ns/`.
-- Group processes by namespace signature.
-- Select a representative or leader PID for each artifact.
-- Show artifact ID, leader PID, user, PID count, namespace IDs or summary, isolation summary, and command evidence.
-- Gracefully skip unreadable or vanished PIDs.
-- Continue partial listings when individual processes disappear.
-- Support `--plain`.
-- Support `--tsv`.
-
-The representative or leader PID SHOULD be the lowest visible PID in the artifact unless a better deterministic rule is implemented and documented.
-
-The user field SHOULD be derived from stable process ownership metadata. If user name resolution fails, numeric UID MAY be displayed.
-
-The command field SHOULD use command-line evidence from `/proc/<pid>/cmdline` where readable, falling back to process name metadata where needed. Command text MUST be sanitized for the selected output mode.
-
-Example human output:
-
-```text
-ARTIFACT          LEADER   USER    PIDS   ISOLATION             COMMAND
-ns-4026532887     1842     david   5      mnt,pid,net,uts,ipc   /usr/bin/foo
-ns-4026533012     2291     david   2      mnt,pid,user          bwrap
-ns-4026533220     3104     root    1      mnt,uts               systemd-nspawn
-```
-
-If no namespace artifacts are discovered, the command MUST fail with `E_EMPTY_RESULT` unless a future option explicitly permits empty success.
-
-## 14. `inspect` Command
-
-`nsurgn inspect <pid|artifact-id>` MUST:
-
-- Resolve the target.
-- Show process metadata.
-- Show namespace IDs.
-- Show host comparison.
-- Show artifact signature.
-- Show visible process count for the artifact.
-- Support `--kv`.
-
-Human output SHOULD include:
-
-```text
-Target:
-  pid:        1000
-  user:       david
-  command:    /usr/bin/example
-
-Artifact:
-  id:         ns-4026532887
-  pids:       5
-  signature:  mnt=4026532887|pid=4026532891|net=4026532894|user=4026531837
-```
-
-`inspect --kv` MUST emit stable key names for the core fields:
-
-```text
-pid=
-artifact_id=
-leader_pid=
-user=
-pids=
-signature=
-mnt_ns=
-pid_ns=
-net_ns=
-user_ns=
-uts_ns=
-ipc_ns=
-cgroup_ns=
-time_ns=
-```
-
-Fields unavailable on the local kernel MAY be omitted or emitted with an empty value, but the behavior MUST be consistent and documented in help or tests.
-
-## 15. `explain` Command
-
-`nsurgn explain <pid|artifact-id>` MUST provide evidence-based interpretation without runtime guessing.
-
-It MUST:
-
-- Resolve the target.
-- Show target process evidence.
-- Show namespace evidence compared to host namespaces.
-- State which namespaces differ from the host baseline.
-- State which namespaces appear shared with the host baseline.
-- Explicitly say that `nsurgn` does not infer a container runtime.
-- Suggest useful next commands.
-- Support `--plain`.
-
-Example:
-
-```text
-Target:
-  pid:        1842
-  user:       david
-  command:    /usr/bin/bwrap --args 32 ...
-
-Namespace evidence:
-  mnt:        4026532887  differs from host
-  pid:        4026532891  differs from host
-  net:        4026532894  differs from host
-  user:       4026531837  same as host
-  uts:        4026532888  differs from host
-  ipc:        4026532889  differs from host
-  cgroup:     4026532890  differs from host
-
-Interpretation:
-  This process is isolated by mount, pid, net, uts, ipc, and cgroup namespaces.
-  The user namespace appears to be shared with the host.
-  nsurgn does not infer a container runtime.
-  It reports only kernel-visible namespace facts.
-
-Suggested actions:
-  nsurgn inspect 1842
-  nsurgn enter 1842 --dry-run
-```
-
-`explain` MUST NOT emit runtime labels such as `type: Docker` or `type: Flatpak`.
-
-## 16. `ps` Command
-
-`nsurgn ps <pid|artifact-id>` MUST:
-
-- Resolve the target to an artifact.
-- List all visible processes that match the artifact signature.
-- Show PID, PPID, user, namespace summary, and command.
-- Gracefully handle vanished processes.
-
-Example:
-
-```text
-PID     PPID    USER    NS                  COMMAND
-1842    1       david   mnt,pid,net,uts     /usr/bin/foo
-1849    1842    david   mnt,pid,net,uts     /usr/bin/foo-worker
-1850    1842    david   mnt,pid,net,uts     /bin/sh
-```
-
-The process list SHOULD be sorted by numeric PID.
-
-## 17. `enter` Command
-
-`nsurgn enter` is a core v1 feature.
-
-`nsurgn enter <pid|artifact-id>` MUST:
-
-- Resolve the target to a representative PID.
-- Validate that the target PID still exists before execution.
-- Build the `nsenter` command using Bash arrays.
-- Show the target and command before executing unless `--yes` is supplied.
-- Support `--dry-run`.
-- Support `--shell`.
-- Use safe default shell behavior.
-- Fail with `E_NO_NSENTER` if `nsenter` is unavailable.
-
-Default command shape:
 
 ```bash
-nsenter --target "$pid" --mount --uts --ipc --net --pid -- "$shell"
+sudo nsurgn list
 ```
 
-### 17.1 User Namespace Default
-
-`enter` MUST NOT enter the user namespace by default in v1.
-
-Rationale: entering a user namespace can change credential mappings and permission behavior in ways that are surprising for operators. A conservative default enters mount, UTS, IPC, network, and PID namespaces while leaving user namespace entry for an explicit future option.
-
-Version 1 MAY include a documented unsupported error for `--user` or similar if users attempt to request it:
+Example output:
 
 ```text
-E_UNSUPPORTED: user namespace entry is unsupported in v1
+A1	container-ish	13	18342	1	4	containerd/k8s	nginx -g daemon off;
+A2	suspicious	7	22110	1	2	none	./worker
+A3	isolated	5	9051	-	1	systemd	systemd-resolved
 ```
 
-### 17.2 Shell Resolution
+### 13.2 `nsurgn inspect <artifact-id|pid>`
 
-Default shell resolution MUST be:
+Show detailed metadata for one artifact or PID.
 
-1. Use `--shell` if supplied.
-2. Otherwise use `/bin/sh`.
-3. Do not blindly trust `$SHELL`, because it may not exist inside the target mount namespace.
+Required output:
 
-The requested shell MUST be an absolute path. If it is empty, relative, or contains unsafe line-oriented display characters, the command MUST fail with `E_BAD_SHELL`.
+- resolved target,
+- leader host PID,
+- classification and score,
+- namespace profile,
+- host namespace differences,
+- cgroup paths,
+- command line,
+- executable path when readable,
+- target root when readable,
+- leader selection reason,
+- classification reasons.
 
-The implementation SHOULD NOT attempt to prove that the shell exists inside the target mount namespace before `nsenter`, because that check is not reliable from the host mount namespace. It MAY validate that the host-side path looks syntactically safe.
+### 13.3 `nsurgn ps <artifact-id|pid>`
 
-### 17.3 Preview
+List visible processes in an artifact.
 
-Preview output SHOULD look like:
+Required output:
+
+- host PID,
+- namespace PID when available,
+- parent PID,
+- user or UID,
+- process state,
+- command.
+
+### 13.4 `nsurgn report [<artifact-id|pid>]`
+
+Produce a detailed read-only report.
+
+Without a target, report all non-host artifacts found by default discovery.
+
+With a target, report only that artifact or PID.
+
+Required content:
+
+- artifact summary,
+- process table,
+- namespace comparison,
+- cgroup hints,
+- mount summary when readable,
+- classification evidence,
+- permission limitations encountered during scan.
+
+### 13.5 `nsurgn map [<artifact-id|pid>]`
+
+Show namespace relationships among visible artifacts.
+
+The map should help answer:
+
+- which artifacts share PID namespaces,
+- which artifacts share mount namespaces,
+- which artifacts share network namespaces,
+- which artifacts are split only by less central namespaces,
+- how the selected grouping mode affects the result.
+
+The output may be textual in v1.0. It does not need to be graphical.
+
+### 13.6 `nsurgn doctor`
+
+Report whether the local system can support v1.0 discovery and inspection.
+
+Required checks:
+
+- `/proc` is mounted,
+- namespace links are readable for at least the current process,
+- required standard utilities are available,
+- current user is root or non-root,
+- other-user process visibility appears complete or limited,
+- likely procfs restrictions are detected where practical.
+
+`doctor` should exit zero if diagnostics complete, even when warnings are found. It should exit nonzero only when diagnostics cannot run meaningfully.
+
+### 13.7 `nsurgn version`
+
+Print version information.
+
+Required output:
+
+- `nsurgn` version,
+- release channel or build identifier when available.
+
+### 13.8 `nsurgn help`
+
+Print command help.
+
+Help output must:
+
+- show only v1.0 commands,
+- avoid promising out-of-scope behavior,
+- include examples for common read-only workflows,
+- explain that artifact IDs are ephemeral.
+
+---
+
+## 14. Interface Quality
+
+The interface must be:
+
+- fast,
+- clear,
+- safe,
+- scriptable,
+- predictable,
+- useful to Linux operators,
+- copy-pasteable.
+
+The interface should provide:
+
+- good help text,
+- readable tables,
+- meaningful errors,
+- minimal decoration,
+- restrained color.
+
+The interface must avoid:
+
+- animation,
+- spinner noise,
+- fragile dashboards,
+- unnecessary Unicode,
+- overdone color,
+- terminal-size-dependent correctness,
+- `ncurses` behavior,
+- mouse interaction.
+
+Human-readable output should fit typical terminals, but correctness must not depend on terminal width.
+
+---
+
+## 15. Output Modes
+
+### 15.1 Raw Output
+
+Default output mode.
+
+Raw output is a tab-separated record stream intended for pipes, scripts, and parsers.
+
+Raw output requirements:
+
+- one record per line,
+- fields separated by literal tab characters,
+- no header by default,
+- no color,
+- no alignment padding,
+- no wrapping,
+- no decoration,
+- warnings and diagnostics on stderr only.
+
+Fields containing tabs, newlines, or carriage returns must be escaped or normalized so each output record remains one physical line.
+
+### 15.2 Table Output
+
+Table output is opt-in for human-facing summaries.
+
+Table output should be readable and stable enough for operators, but scripts should prefer raw, JSON, or NDJSON output.
+
+### 15.3 Text Output
+
+Text output is opt-in for detailed human reports.
+
+Text output should favor explicit labels and short sections.
+
+### 15.4 JSON Output
+
+JSON output should expose the same facts as human output using stable field names.
+
+### 15.5 NDJSON Output
+
+NDJSON output may be used for stream-like artifact or process records.
+
+Each line must be a complete JSON object.
+
+---
+
+## 16. Error Handling
+
+### 16.1 Error Philosophy
+
+Errors should be specific and actionable.
+
+Bad:
 
 ```text
-Target artifact:
-  leader pid: 1842
-  command:    /usr/bin/foo
-  user:       david
-
-Namespaces:
-  mount:      yes
-  uts:        yes
-  ipc:        yes
-  net:        yes
-  pid:        yes
-  user:       no
-
-Command:
-  nsenter --target 1842 --mount --uts --ipc --net --pid -- /bin/sh
-
-Continue? [y/N]
+failed
 ```
 
-Confirmation MUST default to no. Only an affirmative `y` or `yes`, case-insensitive, SHOULD continue.
-
-`--yes` MUST skip the prompt but SHOULD still print the target and command unless a future quiet option is defined.
-
-### 17.4 Dry Run
-
-`--dry-run` MUST print the target and command without executing `nsenter`.
-
-Example:
+Good:
 
 ```text
-$ nsurgn enter ns-4026532887 --dry-run
-
-Target artifact:
-  leader pid: 1842
-  user:       david
-  command:    /usr/bin/foo
-
-Command:
-  nsenter --target 1842 --mount --uts --ipc --net --pid -- /bin/sh
+error: cannot read /proc/18342/root: permission denied
+hint: run as root or check procfs restrictions
 ```
 
-`--dry-run` MUST NOT require user confirmation.
+### 16.2 Common Error Classes
 
-### 17.5 `enter --pick`
-
-`nsurgn enter --pick` MUST provide a no-dependency interactive picker using Bash `select`.
-
-Example:
+#### Permission Denied
 
 ```text
-$ nsurgn enter --pick
-
-Select namespace artifact:
-
-1) ns-4026532887  pid=1842  user=david  pids=5  iso=mnt,pid,net,uts,ipc
-2) ns-4026533012  pid=2291  user=david  pids=2  iso=mnt,pid,user
-3) ns-4026533220  pid=3104  user=root   pids=1  iso=mnt,uts
-
-Choice:
+error: cannot read /proc/18342/root: permission denied
 ```
 
-Invalid selections MUST be handled cleanly without executing `nsenter`.
-
-Optional `fzf` support is out of scope for v1 unless explicitly added as optional and non-required in a later specification.
-
-## 18. `doctor` Command
-
-`nsurgn doctor` MUST report:
-
-- Whether `/proc` is mounted.
-- Whether namespace links are readable.
-- Whether `nsenter` is available.
-- Whether `readlink`, `stat`, `ps`, `awk`, `sed`, `grep`, `sort`, `uniq`, and `find` are available.
-- Whether the user is root.
-- Whether unprivileged inspection appears possible.
-- Likely limitations for entering namespaces.
-- Warnings rather than hard failures where appropriate.
-
-Example:
+#### Process Disappeared
 
 ```text
-System:
-  /proc mounted:              ok
-  nsenter available:          ok
-  readlink available:         ok
-  running as root:            no
-
-Capabilities:
-  read own namespaces:        ok
-  read other user processes:  limited
-  enter mount namespaces:     likely requires elevated privileges
-  enter net namespaces:       likely requires elevated privileges
-
-Result:
-  nsurgn can inspect visible user processes.
-  Some enter operations may fail without sudo or matching user namespace permissions.
+warning: pid 18379 disappeared during scan
 ```
 
-`doctor` SHOULD exit zero if diagnostics complete, even when warnings are found. It SHOULD exit nonzero only when diagnostics cannot run meaningfully, such as when `/proc` is unavailable.
-
-## 19. `version` and `help`
-
-`nsurgn version` MUST print the program name and version.
-
-Example:
+#### Target Missing
 
 ```text
-nsurgn 1.0.0
+error: target pid 18342 does not exist
 ```
 
-`nsurgn help` and `nsurgn --help` MUST print concise command usage, supported options, output modes, and safety notes for `enter`.
-
-Help text MUST avoid claiming runtime detection.
-
-## 20. Error Model
-
-Errors MUST go to stderr. Failures MUST use nonzero exit status. Errors MUST have a predictable prefix and stable error code.
-
-Recommended format:
+#### Ambiguous Artifact
 
 ```text
-nsurgn: E_BAD_PID: PID must be a numeric process id: abc
+error: artifact A1 no longer exists in current scan
+hint: rerun nsurgn list
 ```
 
-Minimum stable error codes:
+#### Unsupported Platform
 
 ```text
-E_NO_PROC          /proc is not available
-E_BAD_PID          PID does not exist, is invalid, or is not numeric
-E_ACCESS_DENIED    process exists but namespace links cannot be read
-E_NO_NSENTER       nsenter not found
-E_TARGET_GONE      target disappeared before operation completed
-E_NO_ARTIFACT      artifact id not found
-E_EMPTY_RESULT     no namespace artifacts discovered
-E_BAD_OPTION       invalid argument
-E_BAD_SHELL        requested shell is invalid or unavailable
-E_UNSUPPORTED      requested operation is unsupported in v1
+error: this command requires Linux procfs
 ```
 
-The implementation MUST NOT emit raw stack traces.
+### 16.3 Exit Codes
 
-Partial listing MUST continue when individual PIDs fail. Commands targeting one specific PID MUST fail clearly if required namespace metadata cannot be read.
-
-Suggested exit status mapping:
-
-- `0`: success
-- `1`: general failure
-- `2`: bad usage or bad option
-- `3`: target not found or disappeared
-- `4`: access denied
-- `5`: missing dependency
-
-The exact mapping MAY change before v1 release, but tests MUST lock the final behavior.
-
-## 21. Color and Terminal Behavior
-
-Color MUST be restrained and status-oriented.
-
-Color MAY be emitted only when:
-
-- Stdout is a terminal.
-- `NO_COLOR` is not set.
-- The selected output mode is human.
-
-Color MUST be disabled in:
-
-- `--plain`
-- `--tsv`
-- `--kv`
-- Non-terminal stdout
-- Any machine-readable mode
-
-Color meanings SHOULD be:
-
-- Green: ok, current, matched
-- Yellow: warning, limited
-- Red: error
-- Dim: secondary detail
-
-The implementation MUST NOT rely on color to convey required information.
-
-## 22. Security and Safety Model
-
-`nsurgn` MUST NOT grant privileges. It only uses permissions already available to the invoking user.
-
-`nsurgn enter` MAY fail due to normal Linux permission boundaries. Root privileges or Linux capabilities may be required to enter some namespaces.
-
-The implementation MUST account for:
-
-- `/proc` races.
-- PID reuse.
-- Target process disappearance.
-- Unreadable namespace links.
-- Untrusted command lines.
-- Untrusted process names.
-- Potentially hostile process metadata.
-
-The implementation MUST NOT:
-
-- Execute data from process metadata.
-- Use `eval`.
-- Mutate cgroups.
-- Mutate mounts.
-- Mutate networking.
-- Kill processes.
-
-Shell command construction MUST use arrays.
-
-`enter` MUST show the exact `nsenter` argv before execution unless a future quiet mode explicitly changes this behavior.
-
-## 23. Repository Layout
-
-Recommended initial layout:
+Suggested exit codes:
 
 ```text
-nsurgn/
-|-- nsurgn
-|-- README.md
-|-- SPEC.md
-|-- PLAN.md
-|-- TESTS.md
-|-- man/
-|   `-- nsurgn.1
-|-- test/
-|   |-- bats/
-|   |-- helpers/
-|   |-- fixtures/
-|   `-- run-tests.sh
-`-- examples/
-    |-- unshare-demo.sh
-    `-- namespace-lab.sh
+0   success
+1   general error
+2   usage error
+3   permission denied
+4   target not found
+5   artifact not found
+6   partial success
+7   process changed/disappeared
+8   unsupported platform or missing required Linux feature
 ```
 
-For v1, the implementation SHOULD prefer one main executable Bash file named `nsurgn`. Splitting into many Bash libraries SHOULD be avoided unless complexity clearly justifies it.
+---
 
-## 24. BATS Test Strategy
+## 17. Privilege Requirements
 
-BATS is a first-class v1 requirement.
+Some discovery may work unprivileged.
 
-Recommended test layout:
+Likely readable:
 
 ```text
-nsurgn/
-|-- nsurgn
-|-- README.md
-|-- SPEC.md
-|-- PLAN.md
-|-- TESTS.md
-|-- man/
-|   `-- nsurgn.1
-|-- test/
-|   |-- bats/
-|   |   |-- 00-doctor.bats
-|   |   |-- 01-help-version.bats
-|   |   |-- 02-pid-validation.bats
-|   |   |-- 03-namespace-read.bats
-|   |   |-- 04-list.bats
-|   |   |-- 05-inspect.bats
-|   |   |-- 06-ps.bats
-|   |   |-- 07-explain.bats
-|   |   |-- 08-enter-dry-run.bats
-|   |   |-- 09-output-modes.bats
-|   |   |-- 10-errors.bats
-|   |   `-- 20-integration-unshare.bats
-|   |-- helpers/
-|   |   |-- nsurgn-test-helper.bash
-|   |   `-- fixture-helper.bash
-|   |-- fixtures/
-|   |   |-- fake-proc-basic/
-|   |   |-- fake-proc-missing-ns/
-|   |   `-- fake-proc-access-denied/
-|   `-- run-tests.sh
+/proc/<pid>/status
+/proc/<pid>/cmdline
+/proc/<pid>/ns/*
 ```
 
-### 24.1 Fake `/proc` Tests
-
-Deterministic tests MUST use `NSURGN_PROC_ROOT`.
-
-Fake `/proc` tests SHOULD cover:
-
-- PID validation.
-- Namespace link parsing.
-- Artifact ID construction.
-- Target resolution.
-- Output formatting.
-- Error rendering.
-- Option parsing.
-- Fake `nsenter` execution.
-- Process disappearance simulation.
-- Missing namespace links.
-- Access-denied fixtures where feasible.
-
-Fake helper binaries SHOULD be used through environment seams such as `NSURGN_NSENTER_BIN` and `NSURGN_READLINK_BIN`.
-
-### 24.2 Real Integration Tests
-
-Integration tests SHOULD cover actual Linux behavior:
-
-- Real namespace creation using `unshare`.
-- Real namespace discovery.
-- Real `enter --dry-run` rendering.
-- Process disappearance handling.
-- Permission-limited behavior.
-
-Integration tests MUST skip cleanly when prerequisites are unavailable:
-
-```bash
-command -v unshare >/dev/null || skip "unshare not available"
-command -v nsenter >/dev/null || skip "nsenter not available"
-```
-
-Integration tests MUST NOT require Docker, Podman, Kubernetes, or any container runtime.
-
-### 24.3 Minimum Test Target
-
-The v1 test suite SHOULD include:
+Possibly restricted:
 
 ```text
-40-60 BATS tests
-fake /proc fixture coverage
-real unshare integration tests where possible
-dry-run enter tests
-fake nsenter execution tests
-error-path coverage
-stable output-mode tests
+/proc/<pid>/root
+/proc/<pid>/exe
+/proc/<pid>/mountinfo
 ```
 
-### 24.4 Suggested Test Files
+Most complete results usually require root.
 
-`00-doctor.bats` SHOULD test dependency reporting and `/proc` availability behavior.
+Recommended message when non-root:
 
-`01-help-version.bats` SHOULD test `help`, `--help`, invalid command handling, and version output.
+```text
+warning: running without root; results may be incomplete
+```
 
-`02-pid-validation.bats` SHOULD test numeric PID acceptance and invalid PID rejection.
+Behavior varies by kernel, procfs mount options, LSMs, namespace configuration, and distribution defaults.
 
-`03-namespace-read.bats` SHOULD test namespace symlink parsing for all supported namespace types.
+---
 
-`04-list.bats` SHOULD test artifact grouping, leader selection, TSV header stability, and vanished PID tolerance.
+## 18. Security Considerations
 
-`05-inspect.bats` SHOULD test target resolution, host comparison, artifact signature output, and `--kv`.
+`nsurgn v1.0` treats process metadata as untrusted.
 
-`06-ps.bats` SHOULD test process membership listing and sorting.
+Safety requirements:
 
-`07-explain.bats` SHOULD test evidence wording and absence of runtime identity claims.
+- Process names and command lines may lie.
+- Cgroup paths and runtime hints may be spoofed or non-standard.
+- Namespace grouping may be ambiguous.
+- Host PID visibility may be incomplete.
+- Environment data may expose secrets and is not part of v1.0 output.
+- Reports must frame runtime hints as evidence, not proof.
+- Commands must not build executable shell strings from process metadata.
+- Commands must handle vanished PIDs gracefully.
 
-`08-enter-dry-run.bats` SHOULD test command construction, shell selection, user namespace exclusion, and no execution.
+---
 
-`09-output-modes.bats` SHOULD test ANSI suppression in plain, TSV, and key-value modes.
-
-`10-errors.bats` SHOULD test stable error codes and stderr behavior.
-
-`20-integration-unshare.bats` SHOULD test real namespace workflows and skip behavior.
-
-## 25. Implementation Milestones
+## 19. Implementation Milestones
 
 Recommended milestones:
 
@@ -924,45 +863,160 @@ M2: PID validation and namespace reading
 M3: artifact grouping and list command
 M4: inspect command with host comparison
 M5: ps command
-M6: explain command
-M7: enter --dry-run
-M8: safe enter execution with preview and --yes
-M9: enter --pick
-M10: output polish and man page
-M11: integration tests and release candidate
+M6: report command
+M7: map command
+M8: structured output
+M9: output polish and man page
+M10: integration tests and release candidate
 ```
 
-Each milestone SHOULD add or update BATS coverage.
+Each milestone should add or update automated coverage.
 
-## 26. Acceptance Criteria
+---
 
-`nsurgn v1` is acceptable when it:
+## 20. Testing Strategy
 
-- Runs as a Bash script.
+### 20.1 Unit Tests
+
+Test parsing functions using fixtures:
+
+```text
+fixtures/proc/<pid>/status
+fixtures/proc/<pid>/stat
+fixtures/proc/<pid>/cmdline
+fixtures/proc/<pid>/cgroup
+fixtures/proc/<pid>/mountinfo
+fixtures/proc/<pid>/ns/*
+```
+
+Test cases:
+
+- namespace ID parsing,
+- cgroup hint parsing,
+- command line null-byte handling,
+- namespace profile creation,
+- host profile comparison,
+- leader selection,
+- score calculation,
+- classification,
+- target resolution,
+- output formatting,
+- error formatting.
+
+### 20.2 Integration Tests
+
+Use Linux tools where available:
+
+```text
+unshare
+mount
+ip netns
+systemd-run
+```
+
+Scenarios:
+
+1. Plain host process.
+2. Process in a new PID namespace.
+3. Process in a new mount namespace.
+4. Process in a new network namespace.
+5. Process in PID, mount, UTS, and IPC namespaces.
+6. Process with a cgroup path containing a runtime hint.
+7. Process with no runtime hint but namespace isolation.
+8. Process that exits during scan.
+9. Process with unreadable metadata.
+10. Non-root execution with partial procfs visibility.
+
+### 20.3 Compatibility Matrix
+
+Target:
+
+- Debian
+- Ubuntu
+- Fedora
+- Rocky / Alma / RHEL-like systems
+- Arch
+- Alpine
+- cgroup v1 systems
+- cgroup v2 systems
+- Kubernetes worker nodes
+
+---
+
+## 21. Acceptance Criteria
+
+`nsurgn v1.0` is acceptable when it:
+
+- Runs as a Bash-oriented Linux CLI.
 - Requires no container runtime.
 - Discovers namespace artifacts from `/proc`.
+- Builds namespace profiles for visible processes.
+- Compares target namespaces to the host profile.
+- Groups artifacts by the selected grouping mode.
+- Selects an artifact leader deterministically.
+- Classifies artifacts using evidence-based labels.
 - Lists artifacts with useful summaries.
 - Inspects a PID or artifact.
-- Compares target namespaces to host namespaces.
-- Explains isolation evidence without runtime guessing.
 - Shows related processes.
-- Previews the `nsenter` command.
-- Can execute `nsenter` with explicit confirmation or `--yes`.
-- Supports `--dry-run`.
-- Supports scriptable output modes.
+- Produces a detailed report.
+- Shows namespace relationships.
+- Provides system diagnostics.
+- Supports raw stream, human, and structured output modes.
 - Handles vanished PIDs gracefully.
-- Provides stable error codes.
-- Has BATS tests covering normal and failure paths.
+- Provides stable exit codes.
 - Avoids `eval`.
 - Treats process metadata as untrusted text.
 - Passes ShellCheck where reasonably possible, or documents justified exceptions.
+- Has automated tests covering normal and failure paths.
 
-## 27. Open Decisions Before Final v1
+---
 
-The following details SHOULD be finalized before the v1 release:
+## 22. README-Oriented Summary
 
-- Exact version string format.
-- Exact exit status mapping.
-- Whether unavailable namespace fields are omitted or emitted empty in `--kv`.
-- Whether artifact ID collision disambiguation is implemented in v1 or deferred with a clear ambiguity error.
-- Whether any future explicit user namespace entry option is accepted as unsupported or omitted entirely.
+```text
+Discovery:
+  nsurgn list
+
+Inspection:
+  nsurgn inspect <artifact-id|pid>
+  nsurgn ps <artifact-id|pid>
+  nsurgn report [<artifact-id|pid>]
+  nsurgn map [<artifact-id|pid>]
+
+Environment diagnostics:
+  nsurgn doctor
+
+Utility:
+  nsurgn version
+  nsurgn help
+```
+
+---
+
+## 23. Design Position
+
+Correct framing:
+
+```text
+This artifact shares namespaces and metadata commonly associated with containerized workloads.
+```
+
+Incorrect framing:
+
+```text
+This is definitely a Docker container.
+```
+
+Correct framing:
+
+```text
+target_root is /proc/18342/root
+```
+
+Incorrect framing:
+
+```text
+entered the container filesystem
+```
+
+The value of `nsurgn v1.0` is making the Linux substrate visible, inspectable, and explainable when higher-level runtime tooling is missing, broken, restricted, or untrusted.
