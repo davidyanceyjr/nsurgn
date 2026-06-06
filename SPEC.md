@@ -59,9 +59,9 @@ The tool should use evidence-based classifications:
 
 - `host`
 - `isolated`
-- `namespace-init`
-- `container-ish`
-- `suspicious`
+- `namespace-managed`
+- `container-like`
+- `anomalous`
 
 It must not state that a process group is definitely a container unless the operator provides external confirmation.
 
@@ -374,7 +374,7 @@ Same namespace profile as host. Hidden by default.
 
 #### `isolated`
 
-Differs from host in one or more major namespace types.
+Differs from host in one or more major namespace types, but does not have enough evidence to infer origin, runtime backing, or anomaly.
 
 Major namespace types:
 
@@ -383,19 +383,23 @@ Major namespace types:
 - network
 - user
 
-#### `namespace-init`
+#### `namespace-managed`
 
-Has a process that is PID 1 inside a non-host PID namespace.
+Appears intentionally isolated by Linux namespace tooling or host service management, without strong container runtime or platform backing evidence.
 
-#### `container-ish`
+This label may be supported by evidence such as a nested PID namespace init process, `systemd` cgroup context, `unshare`-style process metadata, private mount namespaces, or other host-managed namespace patterns.
+
+#### `container-like`
 
 Has namespace isolation plus cgroup, runtime, container ID, overlay, snapshotter, or Kubernetes-style hints.
 
 This is a probability-oriented label, not proof.
 
-#### `suspicious`
+#### `anomalous`
 
-Has isolation but no clear runtime hint, or has unusual namespace, cgroup, or process layout.
+Has namespace, process, filesystem, permission, or metadata patterns that are unusual, inconsistent, or difficult to explain from visible evidence.
+
+This label means the artifact deserves operator attention. It is not a claim that the artifact is malicious.
 
 ### 10.2 Suggested Scoring Model
 
@@ -422,38 +426,41 @@ Has isolation but no clear runtime hint, or has unusual namespace, cgroup, or pr
 | Mountinfo contains overlay or snapshotter hints | +3 |
 | Mountinfo contains Kubernetes projected or serviceaccount mounts | +2 |
 | Executable path is deleted | +2 |
-| Isolation without runtime hints | suspicious flag |
+| Nested PID namespace init without runtime hints | namespace-managed evidence |
+| Isolation without runtime or namespace-management evidence | anomalous flag |
 
 ### 10.3 Classification Rules
 
-Baseline:
+Classification uses both score and rule evidence. Score communicates evidence strength; labels communicate the most useful operator-facing category. Score alone must not determine the label.
 
 ```text
-score 0-2:
-  host or weakly isolated
+host:
+  no meaningful major namespace difference from the host profile
 
-score 3-5:
-  isolated
+container-like:
+  meaningful namespace isolation plus strong runtime, platform, cgroup,
+  filesystem, overlay, snapshotter, or Kubernetes-style evidence
 
-score 6-8:
-  isolated or namespace-init
+namespace-managed:
+  meaningful namespace isolation plus evidence of deliberate Linux namespace
+  tooling or host service management, without strong runtime or platform backing
 
-score >= 9 with runtime hints:
-  container-ish
+anomalous:
+  meaningful namespace isolation plus concerning, inconsistent, incomplete, or
+  hard-to-explain evidence
 
-score >= 6 without runtime hints:
-  suspicious or isolated, depending on layout
+isolated:
+  meaningful namespace isolation, but insufficient evidence for container-like,
+  namespace-managed, or anomalous
 
 nested PID namespace with ns pid 1:
-  namespace-init
-
-runtime hint + isolation:
-  container-ish
+  strong evidence for namespace-managed unless runtime/platform evidence makes
+  container-like a better primary label
 ```
 
 ### 10.4 Classification Limitation
 
-A process group can look container-like without being a container. A process group can also be a real container while hiding runtime hints. `nsurgn` reports evidence, not certainty.
+A process group can look container-like without being a container. A process group can also be a real container while hiding runtime hints. A process group can be intentionally namespace-managed without being runtime-backed. `nsurgn` reports evidence, not certainty.
 
 ---
 
@@ -534,7 +541,7 @@ Artifact IDs are not persistent across invocations.
 
 ### 13.1 `nsurgn list`
 
-List namespace-isolated, namespace-init, container-ish, or suspicious artifacts.
+List isolated, namespace-managed, container-like, or anomalous artifacts.
 
 Default behavior:
 
@@ -551,8 +558,8 @@ sudo nsurgn list
 Example output:
 
 ```text
-A1	container-ish	13	18342	1	4	containerd/k8s	nginx -g daemon off;
-A2	suspicious	7	22110	1	2	none	./worker
+A1	container-like	13	18342	1	4	containerd/k8s	nginx -g daemon off;
+A2	anomalous	7	22110	1	2	none	./worker
 A3	isolated	5	9051	-	1	systemd	systemd-resolved
 ```
 

@@ -389,7 +389,7 @@ Rules:
 Known enum values:
 
 ```text
-classification: host, isolated, namespace-init, container-ish, suspicious
+classification: host, isolated, namespace-managed, container-like, anomalous
 group_mode: profile, strict, pid, mnt, net, cgroup
 input_type: artifact-id, host-pid
 namespace_type: pid, mnt, net, user, uts, ipc, cgroup, time
@@ -444,7 +444,7 @@ record_type: scan_context, artifact, artifact_summary, namespace_difference,
 ```json
 {
   "artifact_id": "A1",
-  "classification": "container-ish",
+  "classification": "container-like",
   "score": 13,
   "leader_pid": 18342,
   "leader_ns_pid": 1,
@@ -514,7 +514,7 @@ record_type: scan_context, artifact, artifact_summary, namespace_difference,
 {
   "summary": {
     "artifact_id": "A1",
-    "classification": "container-ish",
+    "classification": "container-like",
     "score": 13,
     "leader_pid": 18342,
     "leader_ns_pid": 1,
