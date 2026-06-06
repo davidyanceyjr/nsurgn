@@ -726,11 +726,34 @@ Text output should favor explicit labels and short sections.
 
 JSON output should expose the same facts as human output using stable field names.
 
+JSON output for discovery and inspection commands must be a single valid JSON
+document with:
+
+- `schema_version` set to `nsurgn.output.v1`,
+- `command` set to the executed command name,
+- command-specific objects or arrays for artifacts, processes, reports, or relationships,
+- unavailable scalar values represented as `null`,
+- empty collections represented as `[]`,
+- diagnostics and warnings kept on stderr.
+
+The v1.0 structured schema is defined in `DESIGN.md`. v1.x releases may add
+fields, but must not remove or rename v1.0 fields without changing
+`schema_version`.
+
 ### 15.5 NDJSON Output
 
 NDJSON output may be used for stream-like artifact or process records.
 
 Each line must be a complete JSON object.
+
+Each NDJSON record must include:
+
+- `schema_version`,
+- `command`,
+- `record_type`.
+
+NDJSON is required for `list`, `ps`, and `map`. `inspect` and `report` may use
+section-oriented records for detailed output.
 
 ---
 

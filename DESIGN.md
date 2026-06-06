@@ -269,11 +269,12 @@ JSON output must use valid JSON string escaping and must not require `jq`, Pytho
 
 Structured record stream. Opt-in.
 
-Each line must be one complete JSON object. This is most useful for `list`, `ps`, and possibly relationship records from `map`.
+Each line must be one complete JSON object. This is most useful for `list`,
+`ps`, and relationship records from `map`.
 
 ## 9. Command Output Contracts
 
-The exact field names can be refined during contract work, but v1 should preserve these raw field orders once implemented.
+Raw field order is part of the v1 command contract once implemented.
 
 ### 9.1 `list`
 
@@ -351,9 +352,352 @@ right_artifact_id
 detail
 ```
 
-## 10. Command Flow
+## 10. Structured Output Contracts
 
-### 10.1 `list`
+Structured output is a public CLI contract. JSON and NDJSON render the same
+scan facts used by raw, table, and text output, but they use nested objects
+where that is clearer than positional fields.
+
+### 10.1 Compatibility Rules
+
+All structured records include:
+
+```text
+schema_version
+command
+```
+
+For v1.0, `schema_version` is:
+
+```text
+nsurgn.output.v1
+```
+
+Rules:
+
+- producers may add new object fields in v1.x;
+- producers must not remove or rename v1.0 fields without a schema version change;
+- consumers must ignore unknown fields;
+- enum values may be extended, so consumers must handle unknown values;
+- unavailable or unreadable scalar values are `null`;
+- empty collections are `[]`;
+- PIDs, counts, scores, and score deltas are JSON numbers;
+- namespace IDs are JSON strings without the namespace type wrapper, for example `4026531836`;
+- command lines and paths are JSON strings with standard JSON escaping;
+- diagnostics still go to stderr and must not be interleaved with JSON or NDJSON on stdout.
+
+Known enum values:
+
+```text
+classification: host, isolated, namespace-init, container-ish, suspicious
+group_mode: profile, strict, pid, mnt, net, cgroup
+input_type: artifact-id, host-pid
+namespace_type: pid, mnt, net, user, uts, ipc, cgroup, time
+read_status: ok, partial, permission-denied, vanished
+severity: warning, error
+record_type: scan_context, artifact, artifact_summary, namespace_difference,
+             classification_reason, process, relationship, limitation
+```
+
+### 10.2 Common Types
+
+`scan_context`:
+
+```json
+{
+  "group_mode": "profile",
+  "host_pid": 1,
+  "include_host": false,
+  "process_count": 42,
+  "artifact_count": 3,
+  "limitations": []
+}
+```
+
+`namespace_profile`:
+
+```json
+{
+  "pid": "4026531836",
+  "mnt": "4026531841",
+  "net": "4026531840",
+  "user": "4026531837",
+  "uts": "4026531838",
+  "ipc": "4026531839",
+  "cgroup": "4026531835",
+  "time": null
+}
+```
+
+`namespace_difference`:
+
+```json
+{
+  "namespace_type": "pid",
+  "host_id": "4026531836",
+  "target_id": "4026532901"
+}
+```
+
+`artifact_summary`:
+
+```json
+{
+  "artifact_id": "A1",
+  "classification": "container-ish",
+  "score": 13,
+  "leader_pid": 18342,
+  "leader_ns_pid": 1,
+  "process_count": 4,
+  "runtime_hint": "containerd/k8s",
+  "cgroup_hint": "kubepods",
+  "leader_command": "nginx -g daemon off;",
+  "leader_reason": "nested-pid-init"
+}
+```
+
+`process_record`:
+
+```json
+{
+  "host_pid": 18342,
+  "ns_pid": 1,
+  "ppid": 18301,
+  "uid": 101,
+  "user": "nginx",
+  "state": "S",
+  "start_time": 12345678,
+  "command": "nginx -g daemon off;",
+  "comm": "nginx",
+  "exe_path": "/usr/sbin/nginx",
+  "root_path": "/proc/18342/root",
+  "read_status": "ok"
+}
+```
+
+`classification_reason`:
+
+```json
+{
+  "code": "pid_ns_differs",
+  "score_delta": 3,
+  "detail": "pid namespace differs from host"
+}
+```
+
+`scan_limitation`:
+
+```json
+{
+  "severity": "warning",
+  "code": "permission_denied",
+  "pid": 18342,
+  "path": "/proc/18342/root",
+  "message": "cannot read target root"
+}
+```
+
+`target_resolution`:
+
+```json
+{
+  "input": "A1",
+  "input_type": "artifact-id",
+  "artifact_id": "A1",
+  "host_pid": 18342
+}
+```
+
+`artifact_detail`:
+
+```json
+{
+  "summary": {
+    "artifact_id": "A1",
+    "classification": "container-ish",
+    "score": 13,
+    "leader_pid": 18342,
+    "leader_ns_pid": 1,
+    "process_count": 4,
+    "runtime_hint": "containerd/k8s",
+    "cgroup_hint": "kubepods",
+    "leader_command": "nginx -g daemon off;",
+    "leader_reason": "nested-pid-init"
+  },
+  "namespace_profile": {
+    "pid": "4026532901",
+    "mnt": "4026532902",
+    "net": "4026532905",
+    "user": "4026531837",
+    "uts": "4026532903",
+    "ipc": "4026532904",
+    "cgroup": "4026532906",
+    "time": null
+  },
+  "host_namespace_profile": {
+    "pid": "4026531836",
+    "mnt": "4026531841",
+    "net": "4026531840",
+    "user": "4026531837",
+    "uts": "4026531838",
+    "ipc": "4026531839",
+    "cgroup": "4026531835",
+    "time": null
+  },
+  "namespace_differences": [],
+  "cgroup_paths": [],
+  "processes": [],
+  "classification_reasons": [],
+  "limitations": []
+}
+```
+
+### 10.3 JSON Command Documents
+
+`nsurgn --format json list`:
+
+```json
+{
+  "schema_version": "nsurgn.output.v1",
+  "command": "list",
+  "scan": {
+    "group_mode": "profile",
+    "host_pid": 1,
+    "include_host": false,
+    "process_count": 42,
+    "artifact_count": 3,
+    "limitations": []
+  },
+  "artifacts": []
+}
+```
+
+`nsurgn --format json inspect <artifact-id|pid>`:
+
+```json
+{
+  "schema_version": "nsurgn.output.v1",
+  "command": "inspect",
+  "scan": {},
+  "target": {},
+  "artifact": {}
+}
+```
+
+`scan` is a `scan_context`, `target` is a `target_resolution`, and `artifact`
+is an `artifact_detail`.
+
+`nsurgn --format json ps <artifact-id|pid>`:
+
+```json
+{
+  "schema_version": "nsurgn.output.v1",
+  "command": "ps",
+  "scan": {},
+  "target": {},
+  "artifact": {},
+  "processes": []
+}
+```
+
+`scan` is a `scan_context`, `target` is a `target_resolution`, `artifact` is
+an `artifact_summary`, and `processes` contains `process_record` objects.
+
+`nsurgn --format json report [<artifact-id|pid>]`:
+
+```json
+{
+  "schema_version": "nsurgn.output.v1",
+  "command": "report",
+  "scan": {},
+  "target": null,
+  "artifacts": []
+}
+```
+
+When `report` is called with a target, `target` is a `target_resolution`
+object and `artifacts` contains exactly one artifact detail object.
+
+`nsurgn --format json map [<artifact-id|pid>]`:
+
+```json
+{
+  "schema_version": "nsurgn.output.v1",
+  "command": "map",
+  "scan": {},
+  "target": null,
+  "relationships": []
+}
+```
+
+`scan` is a `scan_context`; `target` is either `null` or a
+`target_resolution`; `relationships` contains `relationship` objects.
+
+`relationship`:
+
+```json
+{
+  "left_artifact_id": "A1",
+  "relationship": "shares-namespace",
+  "namespace_type": "net",
+  "namespace_id": "4026532905",
+  "right_artifact_id": "A2",
+  "detail": "same network namespace"
+}
+```
+
+`doctor`, `version`, and `help` may support JSON, but v1.0 only requires
+stable structured schemas for discovery and inspection commands.
+
+### 10.4 NDJSON Record Streams
+
+NDJSON output writes one complete JSON object per line. Each object includes:
+
+```text
+schema_version
+command
+record_type
+```
+
+`list` emits one `artifact` record per listed artifact:
+
+```json
+{"schema_version":"nsurgn.output.v1","command":"list","record_type":"artifact","artifact":{}}
+```
+
+`ps` emits one `process` record per visible process in the resolved artifact:
+
+```json
+{"schema_version":"nsurgn.output.v1","command":"ps","record_type":"process","artifact_id":"A1","process":{}}
+```
+
+`map` emits one `relationship` record per relationship:
+
+```json
+{"schema_version":"nsurgn.output.v1","command":"map","record_type":"relationship","relationship":{}}
+```
+
+`inspect` and `report` emit detail records in stable section form:
+
+```json
+{"schema_version":"nsurgn.output.v1","command":"inspect","record_type":"artifact_summary","artifact":{}}
+{"schema_version":"nsurgn.output.v1","command":"inspect","record_type":"namespace_difference","artifact_id":"A1","namespace_difference":{}}
+{"schema_version":"nsurgn.output.v1","command":"inspect","record_type":"classification_reason","artifact_id":"A1","classification_reason":{}}
+{"schema_version":"nsurgn.output.v1","command":"inspect","record_type":"process","artifact_id":"A1","process":{}}
+{"schema_version":"nsurgn.output.v1","command":"inspect","record_type":"limitation","artifact_id":"A1","limitation":{}}
+```
+
+The same record types are used by `report`; `report` repeats records for each
+reported artifact. A `scan_context` record may be emitted first for commands
+where scan metadata is useful:
+
+```json
+{"schema_version":"nsurgn.output.v1","command":"report","record_type":"scan_context","scan":{}}
+```
+
+## 11. Command Flow
+
+### 11.1 `list`
 
 ```text
 parse options
@@ -363,7 +707,7 @@ filter host artifacts unless --include-host
 render artifact summaries
 ```
 
-### 10.2 `inspect`
+### 11.2 `inspect`
 
 ```text
 parse target
@@ -372,7 +716,7 @@ resolve target against current scan
 render target metadata, namespace comparison, leader reason, and evidence
 ```
 
-### 10.3 `ps`
+### 11.3 `ps`
 
 ```text
 parse target
@@ -381,7 +725,7 @@ resolve target against current scan
 render process records for the artifact or PID-derived artifact
 ```
 
-### 10.4 `report`
+### 11.4 `report`
 
 ```text
 scan visible processes
@@ -389,7 +733,7 @@ resolve optional target
 render detailed artifact report and scan limitations
 ```
 
-### 10.5 `map`
+### 11.5 `map`
 
 ```text
 scan visible processes
@@ -397,38 +741,38 @@ derive shared namespace relationships
 render relationship records or text summary
 ```
 
-## 11. Major Design Decisions
+## 12. Major Design Decisions
 
-### 11.1 Default to Raw TSV
+### 12.1 Default to Raw TSV
 
 Defaulting to raw TSV makes `nsurgn` useful in Unix pipelines without requiring flags, parsers, or runtime dependencies.
 
 Tradeoff: interactive users must request `--format table` or `--format text` for presentation output.
 
-### 11.2 Use One Scan Per Invocation
+### 12.2 Use One Scan Per Invocation
 
 Each command performs one coherent scan and resolves artifacts within that scan.
 
 Tradeoff: artifact IDs remain ephemeral and may differ between commands. This matches the spec and avoids persistent state.
 
-### 11.3 Use Temp-File Records Internally
+### 12.3 Use Temp-File Records Internally
 
 Temp-file records are simpler, more inspectable, and more testable than trying to model nested structures in Bash arrays.
 
 Tradeoff: implementation must manage cleanup and avoid exposing internal files as a stable public API.
 
-### 11.4 Keep Renderers Isolated
+### 12.4 Keep Renderers Isolated
 
 Renderers are the only place that should know about raw escaping, table alignment, JSON escaping, or NDJSON record construction.
 
 Tradeoff: command views need to provide enough normalized data for every renderer.
 
-## 12. Risks and Follow-Up Design Work
+## 13. Risks and Follow-Up Design Work
 
 JSON and NDJSON rendering in Bash is the highest-risk formatting area. The implementation needs a small, heavily tested JSON string escaper.
 
 Raw escaping must be tested with command lines and paths containing tabs, newlines, carriage returns, and backslashes.
 
-The detailed JSON object schema should be finalized before implementation of `--format json` and `--format ndjson`.
+The JSON and NDJSON schemas are now defined for discovery and inspection commands. `doctor`, `version`, and `help` can add structured schemas later if needed.
 
 The first implementation milestone should keep `raw` and basic human help/version/doctor stable before adding richer renderers.
