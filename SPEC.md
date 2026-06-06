@@ -51,7 +51,7 @@ The v1.0 boundary is intentional. Later features rely on the correctness of arti
 
 `nsurgn` should group visible processes by namespace relationships and supporting Linux metadata.
 
-Default discovery should surface namespace artifacts that differ meaningfully from the host profile. It should not dump every PID by default.
+Default discovery should surface namespace artifacts that differ meaningfully from the host profile. For default discovery, meaningful namespace differences are PID, mount, network, or user namespace differences. It should not dump every PID by default.
 
 ### 3.2 Classify Honestly
 
@@ -308,6 +308,8 @@ Discovery steps:
 9. Hide `host` artifacts from default `list` output.
 10. Display namespace artifacts that differ meaningfully from the host profile.
 
+For default discovery, an artifact differs meaningfully from the host profile when its PID, mount, network, or user namespace differs from the host profile. UTS, IPC, cgroup, and time namespace differences are still recorded and reported as evidence, but by themselves do not cause an artifact to appear in default `list` output.
+
 ---
 
 ## 9. Grouping Modes
@@ -319,12 +321,12 @@ Default.
 Group by:
 
 ```text
-pid_ns + mnt_ns + net_ns
+pid_ns + mnt_ns + net_ns + user_ns
 ```
 
 Rationale:
 
-This balances usefulness and noise. PID, mount, and network namespaces are strong workload-boundary signals without fragmenting too aggressively.
+This balances usefulness and noise. PID, mount, network, and user namespaces are strong workload-boundary signals without fragmenting on weaker namespace differences by default.
 
 ### 9.2 `--group strict`
 

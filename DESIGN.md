@@ -755,13 +755,19 @@ Each command performs one coherent scan and resolves artifacts within that scan.
 
 Tradeoff: artifact IDs remain ephemeral and may differ between commands. This matches the spec and avoids persistent state.
 
-### 12.3 Use Temp-File Records Internally
+### 12.3 Include User Namespace in Default Profile Grouping
+
+Default `--group profile` groups by PID, mount, network, and user namespace. These are the major namespace differences that cause artifacts to appear in default `list` output. UTS, IPC, cgroup, and time namespace differences remain evidence for scoring, inspection, reporting, and strict grouping, but they do not trigger default listing by themselves.
+
+Tradeoff: user namespace differences may split some workloads that would otherwise share PID, mount, and network namespaces, but that split is useful because user namespace isolation materially changes privilege interpretation.
+
+### 12.4 Use Temp-File Records Internally
 
 Temp-file records are simpler, more inspectable, and more testable than trying to model nested structures in Bash arrays.
 
 Tradeoff: implementation must manage cleanup and avoid exposing internal files as a stable public API.
 
-### 12.4 Keep Renderers Isolated
+### 12.5 Keep Renderers Isolated
 
 Renderers are the only place that should know about raw escaping, table alignment, JSON escaping, or NDJSON record construction.
 
