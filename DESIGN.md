@@ -121,6 +121,9 @@ The workspace must be cleaned up on normal exit and common signals.
 
 Internal records are tab-separated. Missing values use `-`. Fields that may contain tabs, newlines, or carriage returns use the same escaping rules as raw output.
 
+Hint fields use `none` when the relevant metadata was readable and no known hint
+was found. They use `-` when the relevant metadata was unavailable or unreadable.
+
 ### 6.1 `process.tsv`
 
 ```text
@@ -166,7 +169,9 @@ leader_command
 leader_reason
 ```
 
-Artifact IDs are assigned after sorting artifact groups and are valid only for the current invocation.
+Artifact IDs are assigned after command visibility filtering and the artifact
+sort defined in `SPEC.md` section 12.3. They are valid only for the current
+invocation.
 
 ### 6.3 `artifact_process.tsv`
 
@@ -306,13 +311,13 @@ command
 
 ### 9.3 `inspect <artifact-id|pid>`
 
-Default raw output should be key-value records because the shape is not naturally tabular:
+Default raw output must be key-value records because the shape is not naturally tabular:
 
 ```text
 section	key	value
 ```
 
-Example sections:
+Required sections:
 
 ```text
 target
@@ -323,11 +328,84 @@ cgroup
 process
 evidence
 limitation
+mount
+```
+
+Required scalar rows:
+
+```text
+target	input	<original-target>
+target	input_type	artifact-id|host-pid
+target	artifact_id	<artifact-id>
+target	host_pid	<host-pid>
+leader	host_pid	<host-pid>
+leader	ns_pid	<ns-pid-or-missing>
+leader	reason	<nested-pid-init|oldest-process|lowest-host-pid>
+leader	command	<escaped-command-or-missing>
+leader	comm	<escaped-comm-or-missing>
+leader	exe_path	<path-or-missing>
+leader	root_path	<path-or-missing>
+classification	label	<classification>
+classification	score	<score>
+classification	runtime_hint	<runtime-hint-or-none-or-missing>
+classification	cgroup_hint	<cgroup-hint-or-none-or-missing>
+mount	root_path	<path-or-missing>
+mount	mountinfo_read_status	ok|partial|permission-denied|vanished
+mount	mount_count	<count-or-missing>
+mount	overlay_or_snapshotter	true|false|-
+mount	kubernetes_projected	true|false|-
+```
+
+For each namespace type, emit these rows using the namespace type in the key:
+
+```text
+namespace	<pid|mnt|net|user|uts|ipc|cgroup|time>.target	<namespace-id-or-missing>
+namespace	<pid|mnt|net|user|uts|ipc|cgroup|time>.host	<namespace-id-or-missing>
+namespace	<pid|mnt|net|user|uts|ipc|cgroup|time>.differs	true|false|-
+```
+
+Repeated scalar values repeat the same `section` and `key`, one row per value:
+
+```text
+cgroup	path	<cgroup-path>
+```
+
+Repeated objects use one-based indexes in the key. Required process rows:
+
+```text
+process	<index>.host_pid	<host-pid>
+process	<index>.ns_pid	<ns-pid-or-missing>
+process	<index>.ppid	<ppid-or-missing>
+process	<index>.uid	<uid-or-missing>
+process	<index>.user	<user-or-missing>
+process	<index>.state	<state-or-missing>
+process	<index>.start_time	<start-time-or-missing>
+process	<index>.read_status	ok|partial|permission-denied|vanished
+process	<index>.comm	<escaped-comm-or-missing>
+process	<index>.command	<escaped-command-or-missing>
+process	<index>.exe_path	<path-or-missing>
+process	<index>.root_path	<path-or-missing>
+```
+
+Required evidence rows for each classification reason:
+
+```text
+evidence	<index>.code	<reason-code>
+evidence	<index>.score_delta	<integer-or-missing>
+evidence	<index>.detail	<escaped-detail>
+```
+
+Required limitation rows for each limitation:
+
+```text
+limitation	<index>.severity	warning|error
+limitation	<index>.code	<limitation-code>
+limitation	<index>.message	<escaped-message>
 ```
 
 ### 9.4 `report [<artifact-id|pid>]`
 
-Default raw output should also use:
+Default raw output must also use:
 
 ```text
 section	key	value
@@ -337,6 +415,22 @@ When reporting multiple artifacts, include `artifact_id`:
 
 ```text
 artifact_id	section	key	value
+```
+
+When `report` is called with a target, raw output uses the same three-column
+contract as `inspect`. When `report` is called without a target, raw output uses
+the four-column multi-artifact contract and repeats the `inspect` section/key
+contract for each reported artifact.
+
+Multi-artifact `report` may emit scan-level rows before artifact rows. Scan rows
+use `-` as the artifact ID:
+
+```text
+-	scan	group_mode	<group-mode>
+-	scan	host_pid	<host-pid>
+-	scan	process_count	<count>
+-	scan	artifact_count	<count>
+-	scan	include_host	true|false
 ```
 
 ### 9.5 `map [<artifact-id|pid>]`
@@ -389,11 +483,16 @@ Rules:
 Known enum values:
 
 ```text
+cgroup_hint: kubepods, docker, crio, libpod, containerd, lxc, machine.slice,
+             container-id, none
 classification: host, isolated, namespace-managed, container-like, anomalous
 group_mode: profile, strict, pid, mnt, net, cgroup
 input_type: artifact-id, host-pid
+leader_reason: nested-pid-init, oldest-process, lowest-host-pid
 namespace_type: pid, mnt, net, user, uts, ipc, cgroup, time
 read_status: ok, partial, permission-denied, vanished
+runtime_hint: kubernetes, docker, crio, podman, containerd, lxc, systemd,
+              unshare, snapshotter, container-id, none
 severity: warning, error
 record_type: scan_context, artifact, artifact_summary, namespace_difference,
              classification_reason, process, relationship, limitation
@@ -449,7 +548,7 @@ record_type: scan_context, artifact, artifact_summary, namespace_difference,
   "leader_pid": 18342,
   "leader_ns_pid": 1,
   "process_count": 4,
-  "runtime_hint": "containerd/k8s",
+  "runtime_hint": "kubernetes",
   "cgroup_hint": "kubepods",
   "leader_command": "nginx -g daemon off;",
   "leader_reason": "nested-pid-init"
@@ -519,7 +618,7 @@ record_type: scan_context, artifact, artifact_summary, namespace_difference,
     "leader_pid": 18342,
     "leader_ns_pid": 1,
     "process_count": 4,
-    "runtime_hint": "containerd/k8s",
+    "runtime_hint": "kubernetes",
     "cgroup_hint": "kubepods",
     "leader_command": "nginx -g daemon off;",
     "leader_reason": "nested-pid-init"

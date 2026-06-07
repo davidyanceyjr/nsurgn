@@ -228,9 +228,57 @@ The leader is the best representative process for an artifact.
 
 Leader selection order:
 
-1. Prefer the process that is PID 1 inside a nested PID namespace.
+1. Prefer a process that is PID 1 inside a nested PID namespace.
 2. Otherwise, prefer the oldest process in the artifact.
 3. Otherwise, prefer the lowest host PID.
+
+Leader selection must be deterministic for a fixed artifact member set.
+
+Eligibility:
+
+- A vanished process is not eligible to be leader.
+- A process with `read_status` `ok`, `partial`, or `permission-denied` is
+  eligible when its host PID is known.
+- Missing metadata prevents a process from satisfying the rule that needs that
+  metadata, but does not prevent fallback selection by host PID.
+
+Namespace PID source:
+
+- The namespace PID is read from the `NSpid:` line in `/proc/<pid>/status` when
+  available.
+- If `NSpid:` has multiple numeric values, use the last value as the process PID
+  in its innermost visible PID namespace.
+- If `NSpid:` is absent or unreadable, the namespace PID is unknown.
+
+Nested PID namespace init detection:
+
+- A process is a nested PID namespace init candidate when its PID namespace ID is
+  known, differs from the host profile PID namespace ID, and its namespace PID is
+  `1`.
+
+Tie-breaks:
+
+1. Among nested PID namespace init candidates, choose the candidate with the
+   lowest known `start_time` from `/proc/<pid>/stat`. If no candidate has known
+   `start_time`, or if candidates tie, choose the lowest host PID.
+2. For oldest-process selection, choose the eligible process with the lowest
+   known `start_time`. If multiple eligible processes share that `start_time`,
+   choose the lowest host PID.
+3. For lowest-host-PID fallback, choose the lowest known host PID among eligible
+   processes.
+
+Leader reason values:
+
+```text
+nested-pid-init
+oldest-process
+lowest-host-pid
+```
+
+If no eligible process remains after vanished processes are excluded, broad
+discovery omits that artifact and records a scan limitation when possible.
+Target-specific commands whose requested artifact loses all eligible members
+must fail with `process-changed`.
 
 The leader is used for:
 
@@ -362,6 +410,55 @@ Group by cgroup-derived hints.
 
 Useful when namespace isolation is weak but cgroup structure is meaningful.
 
+The cgroup group key is derived from `/proc/<pid>/cgroup` for each visible PID.
+Every visible PID must receive exactly one cgroup group key.
+
+Parsing rules:
+
+- Parse each cgroup line as `hierarchy_id:controllers:path`, splitting only on
+  the first two colons. The remaining text is the cgroup path.
+- Treat an empty path as `/`.
+- Preserve path text exactly as reported by procfs after the empty-path rule.
+  Do not resolve symlinks, infer runtime names, or rewrite path components.
+- Ignore blank lines.
+
+Key selection rules:
+
+1. If a unified cgroup v2 line is present, use the first line whose hierarchy
+   ID is `0` and whose controllers field is empty. The group key is:
+
+   ```text
+   cgroup:v2:<path>
+   ```
+
+2. Otherwise, use all parsed cgroup v1 lines. For each line, split controllers
+   on comma, sort controller names bytewise, rejoin them with comma, and pair
+   that controller list with the path. Sort the pairs bytewise by controller
+   list and then path. The group key is:
+
+   ```text
+   cgroup:v1:<controllers>=<path>[;<controllers>=<path>...]
+   ```
+
+3. If `/proc/<pid>/cgroup` is missing, unreadable, empty after blank lines are
+   ignored, or contains no parseable line, use:
+
+   ```text
+   cgroup:unknown
+   ```
+
+If a process has both a unified cgroup v2 line and cgroup v1 lines, the v2 key
+wins. The v1 lines remain evidence but do not affect the cgroup group key.
+
+`--group cgroup` changes only group identity. It does not change the
+classification model or default visibility rules. A cgroup-grouped artifact is
+classified from the aggregate evidence of its member processes. It is hidden
+from default `list` output when the aggregate has no known PID, mount, network,
+or user namespace difference from the host profile. Minor-only namespace
+differences and cgroup path differences remain reportable evidence, and become
+visible in `list` when `--include-host` is used or when the artifact is targeted
+explicitly by a command that accepts a PID or artifact target.
+
 ---
 
 ## 10. Classification Model
@@ -370,7 +467,12 @@ Useful when namespace isolation is weak but cgroup structure is meaningful.
 
 #### `host`
 
-Same namespace profile as host. Hidden by default.
+No known major namespace difference from the host profile. Hidden by default.
+
+For classification, major namespace types are PID, mount, network, and user.
+UTS, IPC, cgroup, and time namespace differences are minor namespace
+differences. Minor-only differences are recorded as evidence, but they do not
+make an artifact non-host by themselves.
 
 #### `isolated`
 
@@ -397,7 +499,7 @@ This is a probability-oriented label, not proof.
 
 #### `anomalous`
 
-Has namespace, process, filesystem, permission, or metadata patterns that are unusual, inconsistent, or difficult to explain from visible evidence.
+Has major namespace isolation plus namespace, process, filesystem, permission, or metadata patterns that are unusual, inconsistent, or difficult to explain from visible evidence.
 
 This label means the artifact deserves operator attention. It is not a claim that the artifact is malicious.
 
@@ -427,40 +529,151 @@ This label means the artifact deserves operator attention. It is not a claim tha
 | Mountinfo contains Kubernetes projected or serviceaccount mounts | +2 |
 | Executable path is deleted | +2 |
 | Nested PID namespace init without runtime hints | namespace-managed evidence |
-| Isolation without runtime or namespace-management evidence | anomalous flag |
+| Contradictory or hard-to-explain isolation evidence | anomalous flag |
 
 ### 10.3 Classification Rules
 
 Classification uses both score and rule evidence. Score communicates evidence strength; labels communicate the most useful operator-facing category. Score alone must not determine the label.
 
+Classification must be deterministic for a fixed scan result. The classifier
+uses only namespace IDs and evidence visible in the current scan. Missing or
+unreadable metadata must be represented as a limitation or reason, but it must
+not be treated as proof that a namespace differs from the host profile.
+
+Non-host labels require at least one known major namespace difference from the
+host profile. If no PID, mount, network, or user namespace is known to differ
+from the host profile, the artifact is classified as `host`, even when minor
+namespace differences or non-namespace hints are present.
+
+When an artifact has one or more known major namespace differences, choose the
+primary label by this precedence:
+
+1. `anomalous`
+2. `container-like`
+3. `namespace-managed`
+4. `isolated`
+
+Higher-precedence labels do not discard lower-precedence evidence. For example,
+an artifact with container runtime hints and unusual inconsistent metadata is
+classified as `anomalous`, while the runtime hints remain visible in the
+classification reasons.
+
 ```text
 host:
-  no meaningful major namespace difference from the host profile
-
-container-like:
-  meaningful namespace isolation plus strong runtime, platform, cgroup,
-  filesystem, overlay, snapshotter, or Kubernetes-style evidence
-
-namespace-managed:
-  meaningful namespace isolation plus evidence of deliberate Linux namespace
-  tooling or host service management, without strong runtime or platform backing
+  no known PID, mount, network, or user namespace difference from the host
+  profile
 
 anomalous:
-  meaningful namespace isolation plus concerning, inconsistent, incomplete, or
-  hard-to-explain evidence
+  one or more known major namespace differences plus concerning, inconsistent,
+  incomplete, or hard-to-explain evidence
+
+container-like:
+  one or more known major namespace differences plus strong runtime, platform,
+  cgroup, filesystem, overlay, snapshotter, or Kubernetes-style evidence
+
+namespace-managed:
+  one or more known major namespace differences plus evidence of deliberate
+  Linux namespace tooling or host service management, without anomalous evidence
+  or strong runtime or platform backing
 
 isolated:
-  meaningful namespace isolation, but insufficient evidence for container-like,
-  namespace-managed, or anomalous
+  one or more known major namespace differences, but insufficient evidence for
+  anomalous, container-like, or namespace-managed
 
 nested PID namespace with ns pid 1:
-  strong evidence for namespace-managed unless runtime/platform evidence makes
-  container-like a better primary label
+  strong evidence for namespace-managed unless anomalous evidence or
+  runtime/platform evidence selects a higher-precedence primary label
 ```
 
 ### 10.4 Classification Limitation
 
 A process group can look container-like without being a container. A process group can also be a real container while hiding runtime hints. A process group can be intentionally namespace-managed without being runtime-backed. `nsurgn` reports evidence, not certainty.
+
+### 10.5 Evidence and Hint Normalization
+
+Hints are normalized summaries of visible evidence. They are not runtime
+identity claims. Classification reasons are the detailed evidence records used
+to explain scoring and labels; hints are compact fields intended for list,
+report, JSON, and NDJSON consumers.
+
+Hint fields are single-valued:
+
+- `runtime_hint` reports the highest-precedence runtime or platform hint.
+- `cgroup_hint` reports the highest-precedence cgroup-path hint.
+- Additional matched evidence must be emitted as classification reasons instead
+  of being concatenated into a composite hint.
+
+Canonical missing and no-hint values:
+
+- In raw output and internal TSV records, unavailable or unreadable scalar values
+  use `-`.
+- In JSON and NDJSON output, unavailable or unreadable scalar values use `null`.
+- Empty repeated values use no rows in raw output and an empty array in JSON.
+- Hint fields use `none` when relevant metadata was readable and no known hint
+  was found.
+- Hint fields use the missing scalar value when relevant metadata was not
+  available to evaluate.
+
+Canonical `cgroup_hint` values:
+
+```text
+kubepods
+docker
+crio
+libpod
+containerd
+lxc
+machine.slice
+container-id
+none
+```
+
+Canonical `runtime_hint` values:
+
+```text
+kubernetes
+docker
+crio
+podman
+containerd
+lxc
+systemd
+unshare
+snapshotter
+container-id
+none
+```
+
+Cgroup hint matching:
+
+1. `kubepods` in a cgroup path -> `cgroup_hint=kubepods`,
+   `runtime_hint=kubernetes`
+2. `docker` in a cgroup path -> `cgroup_hint=docker`,
+   `runtime_hint=docker`
+3. `crio` or `cri-o` in a cgroup path -> `cgroup_hint=crio`,
+   `runtime_hint=crio`
+4. `libpod` in a cgroup path -> `cgroup_hint=libpod`,
+   `runtime_hint=podman`
+5. `containerd` in a cgroup path -> `cgroup_hint=containerd`,
+   `runtime_hint=containerd`
+6. `lxc` in a cgroup path -> `cgroup_hint=lxc`, `runtime_hint=lxc`
+7. `machine.slice` in a cgroup path -> `cgroup_hint=machine.slice`,
+   `runtime_hint=systemd`
+8. A path component that looks like a 32- to 64-character lowercase hexadecimal
+   container ID -> `cgroup_hint=container-id`,
+   `runtime_hint=container-id`
+
+When multiple cgroup hints match, use the first match in the order above for
+the hint fields and emit classification reasons for the additional matches.
+
+Runtime hints from non-cgroup evidence:
+
+- Kubernetes projected or serviceaccount mounts set `runtime_hint=kubernetes`
+  when no higher-precedence cgroup-derived runtime hint is present.
+- Overlay or snapshotter mount evidence sets `runtime_hint=snapshotter` when no
+  higher-precedence runtime hint is present.
+- `unshare`-style executable or command metadata sets `runtime_hint=unshare`
+  when no higher-precedence runtime hint is present.
 
 ---
 
@@ -519,6 +732,22 @@ A3
 ...
 ```
 
+Artifact IDs are assigned after a command's scan has built artifact groups,
+selected leaders, classified artifacts, and applied the command's artifact
+visibility filter such as default host hiding or `--include-host`.
+
+Before ID assignment, sort the artifacts visible to that command by:
+
+1. score descending,
+2. classification rank: `anomalous`, `container-like`, `namespace-managed`,
+   `isolated`, `host`,
+3. leader host PID ascending, with missing leader PID sorting after known leader
+   PIDs,
+4. group key bytewise ascending,
+5. full namespace tuple bytewise ascending.
+
+IDs are then assigned sequentially as `A1`, `A2`, `A3`, and so on.
+
 Commands accepting `<artifact-id|pid>` should accept:
 
 ```text
@@ -533,7 +762,12 @@ Rules:
 - A numeric value means host PID.
 - `pid:18342` explicitly means host PID.
 
-Artifact IDs are not persistent across invocations.
+Artifact IDs are not persistent across invocations. The only stability promise is
+that identical scan facts, command, grouping mode, host profile, and visibility
+options produce the same artifact IDs within the same `nsurgn` version. Scripts
+must not store artifact IDs as durable references. Scripts should prefer host
+PID targets, structured output fields, or re-resolving artifacts from a fresh
+`nsurgn list` result.
 
 ---
 
@@ -558,7 +792,7 @@ sudo nsurgn list
 Example output:
 
 ```text
-A1	container-like	13	18342	1	4	containerd/k8s	nginx -g daemon off;
+A1	container-like	13	18342	1	4	kubernetes	nginx -g daemon off;
 A2	anomalous	7	22110	1	2	none	./worker
 A3	isolated	5	9051	-	1	systemd	systemd-resolved
 ```
@@ -719,6 +953,24 @@ Raw output requirements:
 
 Fields containing tabs, newlines, or carriage returns must be escaped or normalized so each output record remains one physical line.
 
+`inspect` raw output must use stable section records:
+
+```text
+section	key	value
+```
+
+`report` raw output with a target must use the same three-column section
+records as `inspect`. `report` raw output without a target must prefix each
+artifact record with the artifact ID:
+
+```text
+artifact_id	section	key	value
+```
+
+Scan-level rows in multi-artifact `report` raw output use `-` as the artifact
+ID. Repeated scalar values repeat the same section and key. Repeated objects use
+one-based indexes in the key, such as `process	1.host_pid	18342`.
+
 ### 15.2 Table Output
 
 Table output is opt-in for human-facing summaries.
@@ -805,11 +1057,11 @@ warning: pid 18379 disappeared during scan
 error: target pid 18342 does not exist
 ```
 
-#### Ambiguous Artifact
+#### Artifact Not Found
 
 ```text
-error: artifact A1 no longer exists in current scan
-hint: rerun nsurgn list
+error: artifact A1 does not resolve in current scan
+hint: rerun nsurgn list; artifact IDs are per-invocation
 ```
 
 #### Unsupported Platform
