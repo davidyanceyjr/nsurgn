@@ -146,6 +146,7 @@ time_ns
 cgroup_hint
 runtime_hint
 root_path
+root_target
 exe_path
 comm
 cmdline
@@ -153,6 +154,10 @@ read_status
 ```
 
 `read_status` is `ok`, `partial`, `permission-denied`, or `vanished`.
+
+`root_path` is the procfs symlink path `/proc/<pid>/root`. `root_target` is
+the readable `readlink` value of that path and is the only root field used for
+host-root equality or difference checks.
 
 ### 6.2 `artifact.tsv`
 
@@ -378,11 +383,13 @@ leader	command	<escaped-command-or-missing>
 leader	comm	<escaped-comm-or-missing>
 leader	exe_path	<path-or-missing>
 leader	root_path	<path-or-missing>
+leader	root_target	<resolved-root-target-or-missing>
 classification	label	<classification>
 classification	score	<score>
 classification	runtime_hint	<runtime-hint-or-none-or-missing>
 classification	cgroup_hint	<cgroup-hint-or-none-or-missing>
 mount	root_path	<path-or-missing>
+mount	root_target	<resolved-root-target-or-missing>
 mount	mountinfo_read_status	ok|partial|permission-denied|vanished
 mount	mount_count	<count-or-missing>
 mount	overlay_or_snapshotter	true|false|-
@@ -486,6 +493,7 @@ process	<index>.comm	<escaped-comm-or-missing>
 process	<index>.command	<escaped-command-or-missing>
 process	<index>.exe_path	<path-or-missing>
 process	<index>.root_path	<path-or-missing>
+process	<index>.root_target	<resolved-root-target-or-missing>
 ```
 
 Required evidence rows for each classification reason:
@@ -674,6 +682,7 @@ record_type: scan_context, artifact, artifact_summary, namespace_difference,
   "comm": "nginx",
   "exe_path": "/usr/sbin/nginx",
   "root_path": "/proc/18342/root",
+  "root_target": "/",
   "read_status": "ok"
 }
 ```
@@ -1009,8 +1018,8 @@ covers and keep `/proc` input files small enough for focused review.
 
 | Area | Positive fixtures | Near-miss, failure, or visibility fixtures | Expected acceptance checks |
 |---|---|---|---|
-| Anomaly trigger: runtime-backed artifact with host root | Artifact with at least one major namespace difference, readable member `root` equal to host root, and a runtime hint from cgroup, mountinfo, or runtime evidence. | Same runtime hint and host root but no major namespace difference; same major namespace difference and host root but no runtime hint; unreadable `root` with otherwise matching evidence. | Classification is `anomalous` only for the positive fixture and includes `anomaly_runtime_hint_host_root`; near-misses are not `anomalous` and expose limitations for unreadable metadata where applicable. |
-| Anomaly trigger: root differs without mount namespace difference | Process with a major namespace difference outside mount namespace, readable member `root` differing from host root, and mount namespace equal to the host profile. | Differing root with mount namespace also differing; same root with host mount namespace; unreadable `mountinfo` or `root`; minor-only namespace difference. | Classification is `anomalous` only for the positive fixture and includes `anomaly_root_diff_without_mnt_ns`; missing required evidence never satisfies the trigger. |
+| Anomaly trigger: runtime-backed artifact with host root | Artifact with at least one major namespace difference, readable member `root_target` equal to host root, and a runtime hint from cgroup, mountinfo, or runtime evidence. | Same runtime hint and host root but no major namespace difference; same major namespace difference and host root but no runtime hint; unreadable `root_target` with otherwise matching evidence. | Classification is `anomalous` only for the positive fixture and includes `anomaly_runtime_hint_host_root`; near-misses are not `anomalous` and expose limitations for unreadable metadata where applicable. |
+| Anomaly trigger: root differs without mount namespace difference | Process with a major namespace difference outside mount namespace, readable member `root_target` differing from host root, and mount namespace equal to the host profile. | Differing root target with mount namespace also differing; same root target with host mount namespace; unreadable `mountinfo` or `root_target`; minor-only namespace difference. | Classification is `anomalous` only for the positive fixture and includes `anomaly_root_diff_without_mnt_ns`; missing required evidence never satisfies the trigger. |
 | Anomaly trigger: runtime hint without PID or mount isolation | Artifact with a known major namespace difference, PID and mount namespace IDs equal to host profile, and at least one runtime hint. | Runtime hint with no major namespace difference; runtime hint with PID or mount namespace isolation; unreadable PID or mount namespace; minor-only namespace difference. | Classification is `anomalous` only for the positive fixture and includes `anomaly_runtime_hint_without_pid_mnt_ns`; spoofable runtime evidence alone is insufficient. |
 | Anomaly trigger: nested PID init with deleted executable | Member process with nested PID namespace init evidence, executable path ending in `(deleted)`, and artifact PID namespace differing from host profile. | Deleted executable without nested PID init; nested PID init with non-deleted executable; unreadable `exe`; PID namespace equal to host profile. | Classification is `anomalous` only for the positive fixture and includes `anomaly_nested_pid_init_deleted_exe`; unreadable executable metadata is a limitation, not anomaly evidence. |
 | Target visibility | Host PID target resolving to a host-equivalent artifact hidden from default broad output; host PID target resolving to a minor-only cgroup grouped artifact; artifact hidden by default but visible with `--include-host`. | Artifact ID target for a hidden default artifact without `--include-host`; artifact ID target after visibility changes alter ID assignment; nonexistent host PID target. | Host PID targets resolve from the full visible process scan; artifact ID targets resolve only after command visibility filtering; hidden artifact ID targets fail according to `SPEC.md` section 16.3. |

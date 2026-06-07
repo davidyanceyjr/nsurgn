@@ -76,7 +76,7 @@ Reports should expose:
 - leader selection reasons,
 - classification reasons,
 - visible process metadata,
-- target root path when readable.
+- target root path and resolved root target when readable.
 
 ### 3.4 Stay Runtime Independent
 
@@ -290,13 +290,23 @@ The leader is used for:
 
 ### 6.6 Target Root
 
-The target root is the filesystem view exposed by:
+The target root path is the procfs symlink path:
 
 ```text
 /proc/<leader_pid>/root
 ```
 
-v1.0 may report this path when readable. It must not use it for mutation.
+`root_path` always means that procfs symlink path. It is stable enough for
+reporting where the evidence was read from, but it is not the filesystem
+identity used for root comparison.
+
+The target root is the resolved `readlink` value of `root_path`. v1.0 reports
+that value as `root_target` when readable. Root equality and difference checks
+must compare `root_target` values, including the host-profile root target. If
+`root_target` is unreadable, missing, or the process vanished, root comparison
+evidence is unknown and must not satisfy scoring or anomaly rules.
+
+v1.0 must not use either value for mutation.
 
 ---
 
@@ -593,8 +603,8 @@ filesystem inconsistency from the same artifact.
 
 | Trigger | Required evidence | Reason code | Scope | Example |
 |---|---|---|---|---|
-| Runtime-backed artifact with host root | At least one known major namespace difference, a readable member `root_path` equal to the readable host-profile root target, and at least one cgroup, mountinfo, or runtime hint from section 10.5. | `anomaly_runtime_hint_host_root` | artifact-scoped | A process has a Docker cgroup path and differs in the PID namespace, but `/proc/<pid>/root` resolves to the same target as the host root. |
-| Root filesystem differs without mount namespace difference | At least one known major namespace difference, a readable member `root_path` that differs from the readable host-profile root target, and a known mount namespace ID equal to the host profile mount namespace ID. | `anomaly_root_diff_without_mnt_ns` | process-scoped | A process differs from the host in the user namespace and its root target differs from host root, but its mount namespace is known to be the host mount namespace. |
+| Runtime-backed artifact with host root | At least one known major namespace difference, a readable member `root_target` equal to the readable host-profile root target, and at least one cgroup, mountinfo, or runtime hint from section 10.5. | `anomaly_runtime_hint_host_root` | artifact-scoped | A process has a Docker cgroup path and differs in the PID namespace, but `/proc/<pid>/root` resolves to the same target as the host root. |
+| Root filesystem differs without mount namespace difference | At least one known major namespace difference, a readable member `root_target` that differs from the readable host-profile root target, and a known mount namespace ID equal to the host profile mount namespace ID. | `anomaly_root_diff_without_mnt_ns` | process-scoped | A process differs from the host in the user namespace and its root target differs from host root, but its mount namespace is known to be the host mount namespace. |
 | Runtime hint without PID or mount isolation | At least one known major namespace difference, a known PID namespace ID equal to the host profile PID namespace ID, a known mount namespace ID equal to the host profile mount namespace ID, and at least one cgroup, mountinfo, or runtime hint from section 10.5. | `anomaly_runtime_hint_without_pid_mnt_ns` | artifact-scoped | A process differs only in the network namespace while its cgroup path contains `kubepods` and both PID and mount namespaces match the host profile. |
 | Nested PID init with deleted executable | A member process satisfies `nested_pid_init`, the same member process also satisfies `exe_deleted`, and the artifact PID namespace differs from the host profile PID namespace. | `anomaly_nested_pid_init_deleted_exe` | process-scoped | A process is PID 1 inside a nested PID namespace and `/proc/<pid>/exe` reads as `/tmp/worker (deleted)`. |
 
@@ -739,7 +749,7 @@ the text before the first normalized space.
 | Cgroup path contains `lxc` | member process cgroup path | Any cgroup path component contains the exact byte sequence `lxc`. | case-sensitive | `cgroup_lxc` | +3 | `cgroup_hint=lxc`, `runtime_hint=lxc` |
 | Cgroup path contains `machine.slice` | member process cgroup path | Any cgroup path component contains the exact byte sequence `machine.slice`. | case-sensitive | `cgroup_machine_slice` | +2 | `cgroup_hint=machine.slice`, `runtime_hint=systemd` |
 | Cgroup path contains long hex container-like ID | member process cgroup path | A cgroup path component contains a lowercase hex token matching `(^|[^0-9a-f])[0-9a-f]{32,64}([^0-9a-f]|$)`. | case-sensitive | `cgroup_container_id` | +2 | `cgroup_hint=container-id`, `runtime_hint=container-id` |
-| Root filesystem differs from host root | member process `root_path` | A readable `/proc/<pid>/root` target differs from the readable host-profile root target. | N/A | `root_fs_differs` | +2 | none |
+| Root filesystem differs from host root | member process `root_target` | A readable `/proc/<pid>/root` target differs from the readable host-profile root target. | N/A | `root_fs_differs` | +2 | none |
 | Mountinfo contains overlay or snapshotter hints | member process mountinfo | Any parseable mountinfo row matches the overlay or snapshotter rule below. | case-sensitive | `mount_overlay_snapshotter` | +3 | `runtime_hint=snapshotter` when no higher-precedence runtime hint is present |
 | Mountinfo contains Kubernetes projected or serviceaccount mounts | member process mountinfo | Any parseable mountinfo row matches the Kubernetes projected or serviceaccount rule below. | case-sensitive | `mount_kubernetes_projected` | +2 | `runtime_hint=kubernetes` when no higher-precedence cgroup-derived runtime hint is present |
 | Executable path is deleted | member process `/proc/<pid>/exe` raw `readlink` value | Raw `readlink` value ends with the exact suffix `" (deleted)"`. | case-sensitive | `exe_deleted` | +2 | none |
@@ -955,7 +965,7 @@ Required output:
 - cgroup paths,
 - command line,
 - executable path when readable,
-- target root when readable,
+- target root path and resolved root target when readable,
 - leader selection reason,
 - classification reasons.
 
@@ -1368,6 +1378,8 @@ Metadata materiality by command:
 For the metadata named in the matrix:
 
 - `root` means `/proc/<pid>/root`.
+- `root_path` means the `/proc/<pid>/root` symlink path.
+- `root_target` means the readable `readlink` value of `root_path`.
 - `exe` means `/proc/<pid>/exe`.
 - `mountinfo` means `/proc/<pid>/mountinfo`.
 - `cmdline` means `/proc/<pid>/cmdline`.
@@ -1594,7 +1606,14 @@ This is definitely a Docker container.
 Correct framing:
 
 ```text
-target_root is /proc/18342/root
+root_path is /proc/18342/root
+```
+
+When showing root comparison evidence, the resolved target should be labeled
+separately, for example:
+
+```text
+root_target is /
 ```
 
 Incorrect framing:
