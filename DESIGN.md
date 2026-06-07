@@ -122,8 +122,10 @@ The workspace must be cleaned up on normal exit and common signals.
 
 Internal records are tab-separated. Missing values use `-`. Fields that may contain tabs, newlines, or carriage returns use the same escaping rules as raw output.
 
-Hint fields use `none` when the relevant metadata was readable and no known hint
-was found. They use `-` when the relevant metadata was unavailable or unreadable.
+Hint fields use `none` when all source families relevant to that hint were
+readable, or not applicable, and no known hint was found. They use `-` when a
+relevant source family was unavailable, unreadable, vanished, or partial and no
+higher-precedence readable evidence matched.
 
 ### 6.1 `process.tsv`
 
@@ -151,13 +153,41 @@ exe_path
 comm
 cmdline
 read_status
+namespace_read_status
+status_read_status
+stat_read_status
+cmdline_read_status
+comm_read_status
+cgroup_read_status
+root_read_status
+exe_read_status
 ```
 
-`read_status` is `ok`, `partial`, `permission-denied`, or `vanished`.
+`read_status` is `ok`, `permission-denied`, or `vanished` and summarizes
+process scan viability. Source-specific fields are `ok`, `permission-denied`,
+or `vanished` unless that source reader defines partial-read semantics.
+`partial` is not valid for these v1.0 `process.tsv` source fields; mountinfo
+partial reads are represented by `mountinfo_read_status`.
 
 `root_path` is the procfs symlink path `/proc/<pid>/root`. `root_target` is
 the readable `readlink` value of that path and is the only root field used for
 host-root equality or difference checks.
+
+The source-specific status fields cover public process sources used by output,
+scoring, hints, target resolution, and classification explanation:
+
+- `namespace_read_status` covers `/proc/<pid>/ns/*` namespace links.
+- `status_read_status` covers `/proc/<pid>/status`.
+- `stat_read_status` covers `/proc/<pid>/stat`.
+- `cmdline_read_status` covers `/proc/<pid>/cmdline`.
+- `comm_read_status` covers `/proc/<pid>/comm`.
+- `cgroup_read_status` covers `/proc/<pid>/cgroup`.
+- `root_read_status` covers `/proc/<pid>/root`.
+- `exe_read_status` covers `/proc/<pid>/exe`.
+
+When one of these source-specific failures affects requested output, scoring,
+hints, target resolution, or classification explanation, emit a matching
+limitation row.
 
 ### 6.2 `artifact.tsv`
 
@@ -517,7 +547,7 @@ process	<index>.uid	<uid-or-missing>
 process	<index>.user	<user-or-missing>
 process	<index>.state	<state-or-missing>
 process	<index>.start_time	<start-time-or-missing>
-process	<index>.read_status	ok|partial|permission-denied|vanished
+process	<index>.read_status	ok|permission-denied|vanished
 process	<index>.comm	<escaped-comm-or-missing>
 process	<index>.command	<escaped-command-or-missing>
 process	<index>.exe_path	<path-or-missing>
@@ -623,7 +653,8 @@ Rules:
   processes have multiple known values for that namespace type;
 - command lines and paths are JSON strings with standard JSON escaping;
 - hint fields use `none` only for known no-hint values; they use `null` when
-  the relevant metadata was unavailable or unreadable;
+  a relevant source family was unavailable, unreadable, vanished, or partial and
+  no higher-precedence readable evidence matched;
 - diagnostics still go to stderr and must not be interleaved with JSON or NDJSON on stdout.
 
 Known enum values:
@@ -1272,6 +1303,8 @@ covers and keep `/proc` input files small enough for focused review.
 | Anomaly trigger: nested PID init with deleted executable | Member process with nested PID namespace init evidence, executable path ending in `(deleted)`, and artifact PID namespace differing from host profile. | Deleted executable without nested PID init; nested PID init with non-deleted executable; unreadable `exe`; PID namespace equal to host profile. | Classification is `anomalous` only for the positive fixture and includes `anomaly_nested_pid_init_deleted_exe`; unreadable executable metadata is a limitation, not anomaly evidence. |
 | Target visibility | Host PID target resolving to a host-equivalent artifact hidden from default broad output; host PID target resolving to a minor-only cgroup grouped artifact; artifact hidden by default but visible with `--include-host`. | Artifact ID target for a hidden default artifact without `--include-host`; artifact ID target after visibility changes alter ID assignment; nonexistent host PID target. | Host PID targets resolve from the full visible process scan; artifact ID targets resolve only after command visibility filtering; hidden artifact ID targets fail according to `SPEC.md` section 16.3. |
 | Exit-code materiality | Broad command with ordinary unreadable `root`, `exe`, `mountinfo`, `cmdline`, `status`, or `cgroup` represented as limitations while primary output remains coherent. | Targeted command where unreadable metadata prevents target resolution or primary output; targeted command where primary output exists but requested detail is materially incomplete; vanished target process; vanished non-target member during broad scan. | Exit codes follow `SPEC.md` section 16.3: non-material broad limitations stay `0`, material incomplete targeted detail exits `6`, unresolved vanished targets exit `4` or `7` as applicable, and ordinary vanished non-target members in broad scans remain limitations unless coherent primary output cannot be produced. |
+| Hint availability | Artifact with no matching hint and all relevant cgroup, mountinfo, command, process name, and executable source families readable. | Same no-hint artifact with one relevant source family unreadable, vanished, or partial; artifact with unreadable lower-precedence source but a higher-precedence readable hint. | Hint fields emit `none` only for known no-hint values; they emit missing values when a relevant source family prevents knowing that no hint exists, unless a higher-precedence readable hint matched. Limitation rows identify the unavailable source family. |
+| Host root target failure | Default host profile with readable `/proc/1/root`; `--host-pid` profile with readable `/proc/<host-pid>/root`; artifact root comparisons against that readable target. | Default host root unreadable; `--host-pid` root unreadable; host PID vanishes before root target read; otherwise matching root anomaly evidence without a readable host-profile root target. | Host root failure disables root equality and difference evidence for the scan, emits a scan limitation, and changes the exit code only when requested target detail or explanation materially depends on root comparison. |
 | JSON and NDJSON string rendering | Command output containing quotes, backslashes, tabs, newlines, carriage returns, empty readable strings, missing values, ordinary printable command lines, and command-line NUL separators normalized to spaces. | Missing or unreadable metadata for fields that otherwise contain strings; empty readable `cmdline` distinct from missing `cmdline`; multiple NDJSON records with escaped fields. | JSON documents and every NDJSON record parse successfully with tools available in the test environment; escapes follow section 8.4; NDJSON emits one complete JSON object per line. These checks must not add a production runtime dependency on `jq`, Python, or external JSON generators. |
 | Map relationships | Artifacts sharing network namespace; artifacts sharing mount namespace; grouped artifacts sharing cgroup when `--group cgroup` is selected; strict-group artifacts sharing UTS, IPC, cgroup, or time namespace. | Artifacts with no shared major namespaces; duplicate relationship candidates; missing namespace IDs; hidden host-equivalent peer in default broad output; host PID target that resolves to a hidden artifact. | `map` emits only `shares-namespace` rows; no self-relationships or duplicate identity rows are emitted; targeted map includes only rows involving the target artifact; peer visibility follows `SPEC.md` section 12.4. |
 | Raw escaping parity | Raw fields containing tabs, newlines, carriage returns, backslashes, and `/proc/<pid>/cmdline` NUL separators. | Missing values and empty readable values in adjacent fields. | Raw output uses section 8.1 escaping and keeps one record per physical line with literal tab separators between fields. |

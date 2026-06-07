@@ -204,6 +204,15 @@ The operator may override this baseline with:
 --host-pid <pid>
 ```
 
+The host-profile root target uses the same PID as the host profile source:
+`/proc/1/root` by default, or `/proc/<host-pid>/root` when `--host-pid` is
+supplied. If that symlink target is unreadable, permission denied, missing, or
+vanishes during the scan, host-root comparison evidence is unavailable for the
+scan. In that state, root equality, root difference scoring, and anomaly
+triggers that require a readable host-profile root target must not match.
+Commands should emit a scan limitation for the host root failure when root
+comparison could affect requested output or explanation.
+
 ### 6.4 Artifact
 
 An artifact is an inferred operational unit composed of one or more processes related by shared namespace membership and supporting metadata.
@@ -237,8 +246,8 @@ Leader selection must be deterministic for a fixed artifact member set.
 Eligibility:
 
 - A vanished process is not eligible to be leader.
-- A process with `read_status` `ok`, `partial`, or `permission-denied` is
-  eligible when its host PID is known.
+- A process with `read_status` `ok` or `permission-denied` is eligible when its
+  host PID is known.
 - Missing metadata prevents a process from satisfying the rule that needs that
   metadata, but does not prevent fallback selection by host PID.
 
@@ -710,10 +719,28 @@ Canonical missing and no-hint values:
   use `-`.
 - In JSON and NDJSON output, unavailable or unreadable scalar values use `null`.
 - Empty repeated values use no rows in raw output and an empty array in JSON.
-- Hint fields use `none` when relevant metadata was readable and no known hint
-  was found.
+- Hint fields use `none` when relevant source families were readable and no
+  known hint was found.
 - Hint fields use the missing scalar value when relevant metadata was not
   available to evaluate.
+
+Hint availability is evaluated by source family before applying the `none`
+value:
+
+- `cgroup_hint` depends on the cgroup source family.
+- Cgroup-derived `runtime_hint` values depend on the cgroup source family.
+- Mount-derived `runtime_hint` values depend on the mountinfo source family.
+- `unshare`-style `runtime_hint` values depend on command metadata
+  (`cmdline`), process name metadata (`comm`), and executable metadata (`exe`).
+
+For an artifact hint, first select the highest-precedence matched hint from
+readable evidence. If no hint matches, emit `none` only when every source family
+relevant to that hint was readable, or not applicable to that hint type, for the
+member processes that could contribute evidence. If any relevant source family
+was unreadable, vanished, missing, or partial and no higher-precedence readable
+evidence matched, emit the missing scalar value instead of `none` and represent
+the source failure as a limitation when it affects requested output, scoring,
+target resolution, or classification explanation.
 
 Canonical `cgroup_hint` values:
 
@@ -1442,6 +1469,10 @@ Command-specific requirements:
   requested output. Missing optional metadata must be represented as `null`, a
   missing scalar value, a limitation row, or a warning, according to the output
   contract for that command.
+- Host-profile root failure disables root comparison evidence for the scan. It
+  exits `6` only when requested target detail or explanation materially depends
+  on root comparison; otherwise it is represented as a limitation or warning and
+  does not change a successful primary result.
 - Broad scan commands are `list`, untargeted `report`, and untargeted `map`.
   Ordinary vanished non-target PIDs and unreadable optional metadata in broad
   scans exit `0` with limitations or warnings unless they prevent coherent
