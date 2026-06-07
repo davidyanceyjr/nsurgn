@@ -780,12 +780,21 @@ Rules:
 - A numeric value means host PID.
 - `pid:18342` explicitly means host PID.
 
+Artifact ID targets are resolved only against the current command's scan after
+that command has applied its grouping mode, host profile, and visibility
+options. `inspect A1`, `ps A1`, `report A1`, and `map A1` are conveniences for
+operator workflows that run a target command from a fresh `list` observation and
+accept that the ID is resolved against the target command's own current scan;
+they are not durable references to a workload.
+
 Artifact IDs are not persistent across invocations. The only stability promise is
 that identical scan facts, command, grouping mode, host profile, and visibility
-options produce the same artifact IDs within the same `nsurgn` version. Scripts
-must not store artifact IDs as durable references. Scripts should prefer host
-PID targets, structured output fields, or re-resolving artifacts from a fresh
-`nsurgn list` result.
+options produce the same artifact IDs within the same `nsurgn` version. Changed
+scan facts, ordering, grouping, host profile, or visibility options may cause a
+previous artifact ID to resolve to a different current artifact or to fail to
+resolve. Scripts must not store artifact IDs as durable references. Scripts
+should prefer `pid:<host_pid>` targets, structured output fields, or
+re-resolving artifacts from a fresh `nsurgn list` result.
 
 ---
 
@@ -911,7 +920,9 @@ Help output must:
 - show only v1.0 commands,
 - avoid promising out-of-scope behavior,
 - include examples for common read-only workflows,
-- explain that artifact IDs are ephemeral.
+- explain that artifact IDs are ephemeral,
+- steer scripts and repeatable workflows toward `pid:<host_pid>` or structured
+  fields from fresh command output.
 
 ---
 
@@ -1082,6 +1093,10 @@ error: artifact A1 does not resolve in current scan
 hint: rerun nsurgn list; artifact IDs are per-invocation
 ```
 
+When an explicit artifact ID target does not resolve, the command must emit this
+error class, exit `5`, keep stdout empty in `raw`, `json`, and `ndjson` modes,
+and include the rerun hint on stderr.
+
 #### Unsupported Platform
 
 ```text
@@ -1229,6 +1244,18 @@ Test cases:
 - target resolution,
 - output formatting,
 - error formatting.
+
+Target resolution cases:
+
+- Identical scan facts, command, grouping mode, host profile, and visibility
+  options assign the same artifact ID.
+- Changed scan facts, artifact ordering, grouping mode, host profile, or
+  visibility options do not preserve old artifact ID meaning. A previous ID may
+  resolve only to the current command's artifact with that ID, or fail if no
+  current artifact has that ID.
+- An unresolved artifact ID target emits `artifact-not-found`, exits `5`, keeps
+  stdout empty in `raw`, `json`, and `ndjson`, and writes the artifact-ID rerun
+  hint to stderr.
 
 ### 20.2 Integration Tests
 
