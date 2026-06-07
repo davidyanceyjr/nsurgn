@@ -277,6 +277,32 @@ Structured document output. Opt-in.
 
 JSON output must use valid JSON string escaping and must not require `jq`, Python, or another external generator.
 
+JSON string escaping contract:
+
+- double quote (`"`) is emitted as `\"`,
+- backslash (`\`) is emitted as `\\`,
+- tab is emitted as `\t`,
+- newline is emitted as `\n`,
+- carriage return is emitted as `\r`,
+- backspace is emitted as `\b`,
+- form feed is emitted as `\f`,
+- other representable ASCII control characters `0x01` through `0x1f` are
+  emitted as lowercase `\u00xx` escapes,
+- printable bytes are emitted unchanged except where JSON requires escaping.
+
+Proc metadata is normalized before JSON escaping:
+
+- `/proc/<pid>/cmdline` NUL separators are converted to single spaces, matching
+  raw output behavior,
+- literal NUL bytes are source-reader concerns because Bash strings cannot
+  preserve them; v1.0 readers must normalize known NUL-delimited fields before
+  handing values to renderers,
+- an empty but readable `cmdline` is an empty JSON string,
+- missing or unreadable metadata is represented by the schema's missing value
+  for that field, not by a fabricated string,
+- no control character may be omitted solely because Bash cannot print it
+  literally.
+
 ### 8.5 `ndjson`
 
 Structured record stream. Opt-in.
@@ -362,6 +388,74 @@ mount	mount_count	<count-or-missing>
 mount	overlay_or_snapshotter	true|false|-
 mount	kubernetes_projected	true|false|-
 ```
+
+Mount summary semantics:
+
+- `mountinfo_read_status` is `ok` only when `/proc/<pid>/mountinfo` is opened
+  and read to completion for the selected target process.
+- `mountinfo_read_status` is `permission-denied` when opening or reading
+  `/proc/<pid>/mountinfo` fails because access is denied.
+- `mountinfo_read_status` is `vanished` when the target process or proc entry
+  disappears before a coherent read can be completed.
+- `mountinfo_read_status` is `partial` only when at least one parseable
+  mountinfo line was captured but the read ended early or was interrupted before
+  the file was read to completion.
+- `mount_count` is the number of parseable mountinfo lines after a full
+  successful read. When `mountinfo_read_status` is not `ok`, `mount_count` is
+  missing (`-`) even if partial lines were captured.
+
+Mountinfo parser rules:
+
+- Each `/proc/<pid>/mountinfo` line is parsed using the first literal ` - `
+  separator. Lines without this separator are unparseable and do not contribute
+  to `mount_count`.
+- Pre-separator fields are split on ASCII whitespace. A parseable line has at
+  least six pre-separator fields: `mount_id`, `parent_id`, `major_minor`,
+  `root`, `mount_point`, and `mount_options`.
+- Any additional pre-separator fields after `mount_options` and before ` - `
+  are `optional_fields`. v1.0 preserves them as parser input for mount evidence
+  matching, but does not render them as standalone inspect rows.
+- Post-separator fields are split on ASCII whitespace. A parseable line has at
+  least three post-separator fields: `filesystem_type`, `mount_source`, and
+  `super_options`.
+- v1.0 mount summary derivation may use only `mount_point`,
+  `optional_fields`, `filesystem_type`, and `mount_source`. It must not infer
+  overlay, snapshotter, projected-volume, or serviceaccount evidence from
+  unparsed text outside those fields.
+
+Mount evidence rules:
+
+- `overlay_or_snapshotter` is `true` when any parseable mountinfo row has
+  `filesystem_type=overlay`, `filesystem_type=fuse-overlayfs`,
+  `mount_source=overlay`, or a `mount_source` or `mount_point` path component
+  equal to `overlay`, `overlayfs`, `snapshots`, or `snapshotter`.
+- `overlay_or_snapshotter` is `false` when `mountinfo_read_status=ok` and no
+  parseable row matches the overlay or snapshotter rule.
+- `kubernetes_projected` is `true` when any parseable mountinfo row has
+  `filesystem_type=tmpfs` and an `optional_fields` value beginning with
+  `shared:` and a `mount_point` path component equal to `kube-api-access`, or
+  when any parseable row has `filesystem_type=tmpfs` or
+  `filesystem_type=projected` and a `mount_point` path component equal to
+  `serviceaccount`, `secrets`, or `kube-api-access`.
+- `kubernetes_projected` is `false` when `mountinfo_read_status=ok` and no
+  parseable row matches the Kubernetes projected-volume rule.
+- Path-component comparisons are exact, case-sensitive comparisons after
+  splitting `mount_source` and `mount_point` on `/`. Empty components are
+  ignored. These rules do not perform substring matching.
+- When a boolean is `true`, classification may emit a matching reason such as
+  `mount-overlay`, `mount-snapshotter`, `mount-kubernetes-projected`, or
+  `mount-serviceaccount`, using the parsed fields above as evidence detail.
+
+Unreadable or incomplete mountinfo behavior:
+
+- When `mountinfo_read_status` is `permission-denied`, `vanished`, or
+  `partial`, the `mount` rows still render.
+- When `mountinfo_read_status` is not `ok`, `mount_count`,
+  `overlay_or_snapshotter`, and `kubernetes_projected` are missing (`-`), and
+  classification must not infer mount-derived evidence or runtime hints from
+  partial, unreadable, or vanished mountinfo.
+- The unreadable or incomplete read is recorded as a limitation row using the
+  target PID and the read status.
 
 For each namespace type, emit these rows using the namespace type in the key:
 

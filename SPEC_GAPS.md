@@ -89,8 +89,8 @@ Resolution slices:
   implementation drift across Bash match operators.
 - `GAP-2/S4`: Define `mountinfo` field parsing and search scope for overlay,
   snapshotter, Kubernetes projected, and serviceaccount evidence. This slice
-  should share parser terms with `GAP-5`. Resolves mount-related score and hint
-  detection rules.
+  should use the parser terms now defined in `DESIGN.md` section 9.3. Resolves
+  mount-related score and hint detection rules.
 - `GAP-2/S5`: Define deleted executable detection using the exact `readlink`
   output suffix for `/proc/<pid>/exe`, including whether `" (deleted)"` is
   stripped for display or preserved in evidence detail. Resolves the
@@ -186,52 +186,7 @@ Resolution slices:
   vanished non-target member cases. Resolves fixture and acceptance-test
   coverage.
 
-## 5. Mount Summary Parsing Is Underspecified
-
-`DESIGN.md` requires mount summary rows for `inspect`, including
-`mountinfo_read_status`, `mount_count`, `overlay_or_snapshotter`, and
-`kubernetes_projected`. The parsing and status rules are not yet concrete.
-
-Blocking questions:
-
-- What counts as `partial` for mountinfo reads?
-- Is `mount_count` the number of lines in `/proc/<pid>/mountinfo` after a full
-  successful read?
-- Which mountinfo columns or text patterns set overlay, snapshotter, projected,
-  or serviceaccount booleans?
-
-Needed clarification:
-
-- Minimal parser rules for `/proc/<pid>/mountinfo`.
-- Boolean detection rules.
-- Limitation behavior when mountinfo is unreadable.
-
-Source:
-
-- `DESIGN.md` section 9.3.
-
-Resolution slices:
-
-- `GAP-5/S1`: Add minimal `/proc/<pid>/mountinfo` parser rules to `DESIGN.md`
-  section 9.3 or a referenced parser section. Define the pre-` - ` fields,
-  post-separator fields, mount source, filesystem type, mount point, and
-  optional fields used by v1.0. Resolves parser ambiguity.
-- `GAP-5/S2`: Define `mountinfo_read_status`: `ok` when the file is fully read,
-  `permission-denied` when open/read is denied, `vanished` when the proc entry
-  disappears before a coherent read, and `partial` only for a short or
-  interrupted read where at least one parseable line was captured but the full
-  file was not. Resolves the meaning of `partial`.
-- `GAP-5/S3`: Define `mount_count` as the number of parseable mountinfo lines
-  after a full successful read; use missing value when status is not `ok` unless
-  the spec explicitly allows a partial count. Resolves count semantics.
-- `GAP-5/S4`: Define boolean evidence rules for `overlay_or_snapshotter` and
-  `kubernetes_projected`, sharing the matching table from `GAP-2/S4`. Resolves
-  mount summary booleans and classification evidence consistency.
-- `GAP-5/S5`: Add limitation behavior for unreadable mountinfo: mount rows still
-  render with status and missing derived fields; classification must not infer
-  mount evidence from unreadable data. Resolves inspection output behavior.
-
-## 6. JSON Escaping Needs Acceptance Fixtures
+## 5. JSON Escaping Needs Acceptance Fixtures
 
 The design requires valid JSON and NDJSON without `jq`, Python, or another
 external generator. That is feasible in Bash only if the supported character set
@@ -256,14 +211,6 @@ Source:
 
 Resolution slices:
 
-- `GAP-6/S1`: Add a JSON string escaping contract to `DESIGN.md` section 8.4:
-  quote, backslash, tab, newline, carriage return, and other control characters
-  must be emitted as valid JSON escapes; printable bytes remain unchanged except
-  for required JSON escaping. Resolves exact escaping behavior.
-- `GAP-6/S2`: Define how Bash handles unsupported or non-printable proc
-  metadata bytes. Recommended v1.0 rule: NUL in `cmdline` becomes a space before
-  JSON escaping; other ASCII control characters are escaped with standard JSON
-  short escapes when available or `\u00XX`. Resolves control-character handling.
 - `GAP-6/S3`: Add fixtures for quotes, backslashes, tabs, newlines, carriage
   returns, empty strings, missing values, ordinary printable command lines, and
   command-line NUL separators. Resolves acceptance coverage.
@@ -272,7 +219,7 @@ Resolution slices:
   production CLI must not depend on `jq`, Python, or external JSON generators.
   Resolves structured-output validation without changing runtime dependencies.
 
-## 7. Map Relationship Semantics Are Underdefined
+## 6. Map Relationship Semantics Are Underdefined
 
 The `map` command has output fields and a high-level purpose, but not enough
 generation rules to implement deterministic output.
@@ -323,12 +270,3 @@ Resolution slices:
 - `GAP-7/S6`: Add fixtures for shared network namespace, shared mount
   namespace, no shared major namespaces, hidden host-equivalent relationships,
   and targeted map output. Resolves map acceptance testing.
-
-## Suggested Resolution Order
-
-1. Define exact evidence matching and anomaly trigger rules.
-2. Define explicit target visibility semantics.
-3. Define per-command metadata materiality and exit-code thresholds.
-4. Define mountinfo parsing and mount summary booleans.
-5. Define `map` relationship generation and ordering.
-6. Add JSON/NDJSON escaping acceptance fixtures.
