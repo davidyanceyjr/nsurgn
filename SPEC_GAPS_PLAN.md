@@ -21,6 +21,9 @@ it does not define the missing behavior itself.
 
 ### 1. Artifact Namespace Profile For Mixed Groups
 
+Status: completed in `SPEC.md` sections 9, 10.3, 10.5, 12.3, and 13.5, and
+`DESIGN.md` sections 6.2, 9.3, and 10.
+
 Problem: `--group profile` has a coherent artifact namespace profile because it
 groups by PID, mount, network, and user namespaces. Other grouping modes can
 produce artifacts whose member processes have differing namespace IDs in fields
@@ -44,6 +47,23 @@ Candidate decisions to make:
 - Split artifact namespace profile from member namespace profiles.
 - Define which grouping modes can produce mixed profiles and how output marks
   that state.
+
+Resolution:
+
+- Artifact-level namespace values are aggregate values per namespace type:
+  single known namespace ID, `mixed`, or missing.
+- `--group strict` constrains every namespace type to a single value or missing.
+  `--group profile` constrains PID, mount, network, and user namespaces, while
+  minor namespace types may be `mixed`. `--group pid`, `mnt`, `net`, and
+  `cgroup` can produce mixed values outside their grouping key.
+- Artifact-scoped classification, sorting, target detail, output summaries, and
+  `map` relationships use artifact-level namespace values. A `mixed` value does
+  not satisfy equality or difference tests and does not generate map
+  relationships.
+- Member namespace profiles remain available for `inspect`, `ps`, limitations,
+  and process-scoped classification evidence.
+- Raw, JSON, NDJSON, and internal artifact records represent mixed
+  artifact-level namespace values explicitly as `mixed`.
 
 Source areas:
 
@@ -231,12 +251,9 @@ Source areas:
 
 ## Suggested Resolution Order
 
-1. Resolve artifact namespace profile behavior for mixed groups.
-2. Resolve per-field read limitations and generic `partial` semantics together.
-3. Resolve hint aggregation semantics.
-4. Resolve host root target failure behavior.
-5. Decide structured output completeness.
-6. Decide human output contract boundaries.
+1. Resolve per-field read limitations and generic `partial` semantics together.
+2. Resolve hint aggregation semantics.
+3. Resolve host root target failure behavior.
 
 ## Resolution Plan
 

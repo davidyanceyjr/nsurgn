@@ -372,6 +372,20 @@ For default discovery, an artifact differs meaningfully from the host profile wh
 
 ## 9. Grouping Modes
 
+Each artifact has an artifact-level namespace profile derived from its member
+process namespace profiles. For each namespace type, the artifact-level value
+is:
+
+- the single known namespace ID when all member processes with a known value
+  have the same value,
+- `mixed` when two or more member processes have different known values, or
+- missing when no member process has a known value.
+
+Member process namespace profiles remain available for process lists,
+inspection detail, limitations, and process-scoped classification evidence.
+Artifact-scoped comparisons, sorting, target resolution detail, output
+summaries, and `map` relationships use the artifact-level namespace profile.
+
 ### 9.1 `--group profile`
 
 Default.
@@ -386,6 +400,11 @@ Rationale:
 
 This balances usefulness and noise. PID, mount, network, and user namespaces are strong workload-boundary signals without fragmenting on weaker namespace differences by default.
 
+Because the grouping key includes PID, mount, network, and user namespace IDs,
+those artifact-level namespace values are single known IDs or missing. UTS, IPC,
+cgroup, and time namespace values can still be `mixed` inside one
+profile-grouped artifact.
+
 ### 9.2 `--group strict`
 
 Group by the full namespace tuple:
@@ -396,11 +415,17 @@ pid_ns + mnt_ns + net_ns + user_ns + uts_ns + ipc_ns + cgroup_ns + time_ns
 
 Useful for forensic precision.
 
+Because the grouping key includes the full namespace tuple, artifact-level
+namespace values are single known IDs or missing.
+
 ### 9.3 `--group pid`
 
 Group by PID namespace.
 
 Useful for understanding nested PID namespace relationships.
+
+Only the PID namespace is constrained by the grouping key. Mount, network, user,
+UTS, IPC, cgroup, and time namespace values can be `mixed`.
 
 ### 9.4 `--group mnt`
 
@@ -408,11 +433,17 @@ Group by mount namespace.
 
 Useful for filesystem-view investigation.
 
+Only the mount namespace is constrained by the grouping key. PID, network, user,
+UTS, IPC, cgroup, and time namespace values can be `mixed`.
+
 ### 9.5 `--group net`
 
 Group by network namespace.
 
 Useful for network isolation mapping.
+
+Only the network namespace is constrained by the grouping key. PID, mount, user,
+UTS, IPC, cgroup, and time namespace values can be `mixed`.
 
 ### 9.6 `--group cgroup`
 
@@ -469,6 +500,9 @@ differences and cgroup path differences remain reportable evidence, and become
 visible in `list` when `--include-host` is used. They also become visible to
 target-capable commands when explicitly targeted by host PID as defined in
 section 12.4.
+
+No namespace type is constrained by the cgroup grouping key. PID, mount,
+network, user, UTS, IPC, cgroup, and time namespace values can be `mixed`.
 
 ---
 
@@ -575,6 +609,13 @@ host profile. If no PID, mount, network, or user namespace is known to differ
 from the host profile, the artifact is classified as `host`, even when minor
 namespace differences or non-namespace hints are present.
 
+For artifact-scoped classification evidence, a `mixed` namespace value is not a
+known equality or known difference from the host profile. It does not satisfy
+signals that require that artifact namespace type to differ from or equal the
+host profile. Process-scoped evidence may still match when a member process has
+the required known namespace value and all other required process facts are
+present.
+
 When an artifact has one or more known major namespace differences, choose the
 primary label by this precedence:
 
@@ -603,10 +644,10 @@ filesystem inconsistency from the same artifact.
 
 | Trigger | Required evidence | Reason code | Scope | Example |
 |---|---|---|---|---|
-| Runtime-backed artifact with host root | At least one known major namespace difference, a readable member `root_target` equal to the readable host-profile root target, and at least one cgroup, mountinfo, or runtime hint from section 10.5. | `anomaly_runtime_hint_host_root` | artifact-scoped | A process has a Docker cgroup path and differs in the PID namespace, but `/proc/<pid>/root` resolves to the same target as the host root. |
-| Root filesystem differs without mount namespace difference | At least one known major namespace difference, a readable member `root_target` that differs from the readable host-profile root target, and a known mount namespace ID equal to the host profile mount namespace ID. | `anomaly_root_diff_without_mnt_ns` | process-scoped | A process differs from the host in the user namespace and its root target differs from host root, but its mount namespace is known to be the host mount namespace. |
-| Runtime hint without PID or mount isolation | At least one known major namespace difference, a known PID namespace ID equal to the host profile PID namespace ID, a known mount namespace ID equal to the host profile mount namespace ID, and at least one cgroup, mountinfo, or runtime hint from section 10.5. | `anomaly_runtime_hint_without_pid_mnt_ns` | artifact-scoped | A process differs only in the network namespace while its cgroup path contains `kubepods` and both PID and mount namespaces match the host profile. |
-| Nested PID init with deleted executable | A member process satisfies `nested_pid_init`, the same member process also satisfies `exe_deleted`, and the artifact PID namespace differs from the host profile PID namespace. | `anomaly_nested_pid_init_deleted_exe` | process-scoped | A process is PID 1 inside a nested PID namespace and `/proc/<pid>/exe` reads as `/tmp/worker (deleted)`. |
+| Runtime-backed artifact with host root | At least one known artifact-level major namespace difference, a readable member `root_target` equal to the readable host-profile root target, and at least one cgroup, mountinfo, or runtime hint from section 10.5. | `anomaly_runtime_hint_host_root` | artifact-scoped | A process has a Docker cgroup path and differs in the PID namespace, but `/proc/<pid>/root` resolves to the same target as the host root. |
+| Root filesystem differs without mount namespace difference | A member process has at least one known major namespace difference from the host profile, that same member has a readable `root_target` that differs from the readable host-profile root target, and that same member has a known mount namespace ID equal to the host profile mount namespace ID. | `anomaly_root_diff_without_mnt_ns` | process-scoped | A process differs from the host in the user namespace and its root target differs from host root, but its mount namespace is known to be the host mount namespace. |
+| Runtime hint without PID or mount isolation | At least one known artifact-level major namespace difference, a known artifact-level PID namespace ID equal to the host profile PID namespace ID, a known artifact-level mount namespace ID equal to the host profile mount namespace ID, and at least one cgroup, mountinfo, or runtime hint from section 10.5. | `anomaly_runtime_hint_without_pid_mnt_ns` | artifact-scoped | A process differs only in the network namespace while its cgroup path contains `kubepods` and both PID and mount namespaces match the host profile. |
+| Nested PID init with deleted executable | A member process satisfies `nested_pid_init`, the same member process also satisfies `exe_deleted`, and that same member process has a known PID namespace that differs from the host profile PID namespace. | `anomaly_nested_pid_init_deleted_exe` | process-scoped | A process is PID 1 inside a nested PID namespace and `/proc/<pid>/exe` reads as `/tmp/worker (deleted)`. |
 
 Important non-matches:
 
@@ -740,7 +781,7 @@ the text before the first normalized space.
 | IPC namespace differs from host | artifact namespace profile | Known IPC namespace ID differs from the host profile IPC namespace ID. | N/A | `ipc_ns_differs` | +1 | none |
 | Cgroup namespace differs from host | artifact namespace profile | Known cgroup namespace ID differs from the host profile cgroup namespace ID. | N/A | `cgroup_ns_differs` | +1 | none |
 | Time namespace differs from host | artifact namespace profile | Known time namespace ID differs from the host profile time namespace ID. | N/A | `time_ns_differs` | +1 | none |
-| Process is PID 1 inside nested PID namespace | member process `ns_pid` and PID namespace | A member process has `ns_pid=1` and the artifact PID namespace differs from the host profile PID namespace. | N/A | `nested_pid_init` | +4 | none |
+| Process is PID 1 inside nested PID namespace | member process `ns_pid` and PID namespace | A member process has `ns_pid=1` and that same member process has a known PID namespace that differs from the host profile PID namespace. | N/A | `nested_pid_init` | +4 | none |
 | Cgroup path contains `kubepods` | member process cgroup path | Any cgroup path component contains the exact byte sequence `kubepods`. | case-sensitive | `cgroup_kubepods` | +4 | `cgroup_hint=kubepods`, `runtime_hint=kubernetes` |
 | Cgroup path contains `containerd` | member process cgroup path | Any cgroup path component contains the exact byte sequence `containerd`. | case-sensitive | `cgroup_containerd` | +4 | `cgroup_hint=containerd`, `runtime_hint=containerd` |
 | Cgroup path contains `docker` | member process cgroup path | Any cgroup path component contains the exact byte sequence `docker`. | case-sensitive | `cgroup_docker` | +4 | `cgroup_hint=docker`, `runtime_hint=docker` |
@@ -865,6 +906,10 @@ Before ID assignment, sort the artifacts visible to that command by:
    PIDs,
 4. group key bytewise ascending,
 5. full namespace tuple bytewise ascending.
+
+For sorting, artifact-level namespace tuple values use their public scalar
+representation: namespace ID string, `mixed`, or missing. Missing namespace
+values sort after known namespace ID strings and `mixed`.
 
 IDs are then assigned sequentially as `A1`, `A2`, `A3`, and so on.
 
@@ -1051,6 +1096,11 @@ Relationship rows are pairwise artifact rows grouped by namespace type and
 namespace ID. For every generated namespace type, find artifacts with the same
 non-empty namespace ID and emit one row for each unordered pair in that group.
 Do not emit self-relationships.
+
+Artifacts whose artifact-level value for a relationship-generating namespace
+type is missing or `mixed` do not participate in relationship generation for
+that namespace type, because there is no stable shared namespace identity to
+report.
 
 For each relationship row:
 

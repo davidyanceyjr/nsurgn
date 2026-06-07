@@ -164,6 +164,14 @@ host-root equality or difference checks.
 ```text
 artifact_id
 group_key
+pid_ns
+mnt_ns
+net_ns
+user_ns
+uts_ns
+ipc_ns
+cgroup_ns
+time_ns
 classification
 score
 leader_pid
@@ -178,6 +186,12 @@ leader_reason
 Artifact IDs are assigned after command visibility filtering and the artifact
 sort defined in `SPEC.md` section 12.3. They are valid only for the current
 invocation.
+
+Artifact namespace fields are aggregate artifact-level values from `SPEC.md`
+section 9. Each field is a namespace ID string, `mixed`, or `-`. A field is
+`mixed` when member processes contain two or more known namespace IDs for that
+namespace type. Member-level namespace values remain in `process.tsv` and are
+used for process-scoped evidence and detailed inspection.
 
 ### 6.3 `artifact_process.tsv`
 
@@ -479,10 +493,13 @@ Unreadable or incomplete mountinfo behavior:
 For each namespace type, emit these rows using the namespace type in the key:
 
 ```text
-namespace	<pid|mnt|net|user|uts|ipc|cgroup|time>.target	<namespace-id-or-missing>
+namespace	<pid|mnt|net|user|uts|ipc|cgroup|time>.target	<namespace-id-mixed-or-missing>
 namespace	<pid|mnt|net|user|uts|ipc|cgroup|time>.host	<namespace-id-or-missing>
 namespace	<pid|mnt|net|user|uts|ipc|cgroup|time>.differs	true|false|-
 ```
+
+When the target artifact namespace value is `mixed`, render `mixed` in the
+`.target` row and `-` in the corresponding `.differs` row.
 
 Repeated scalar values repeat the same `section` and `key`, one row per value:
 
