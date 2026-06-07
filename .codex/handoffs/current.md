@@ -19,6 +19,7 @@ Non-goals:
 
 - Do not add fixtures yet; `GAP-7/S6` belongs to Chunk 6 fixture work.
 - Do not implement production code.
+- Do not define exit-code materiality; that is Chunk 5.
 - Do not revisit completed Chunk 1 evidence matching, Chunk 2 anomaly
   triggers, or Chunk 3 target visibility unless a direct contradiction blocks
   map semantics.
@@ -27,35 +28,47 @@ Non-goals:
 
 Established source facts:
 
+- Current branch is `main`, tracking `origin/main`.
+- Latest pushed commit before this handoff was `9d1d304 Clarify target
+  visibility rules`.
 - `SPEC_GAPS_PLAN.md` is the active coordination artifact. `SPEC_GAPS.md` is
   retained as the deprecated source gap inventory.
 - Completed Chunk 1, Chunk 2, and Chunk 3 plan sections have been removed from
-  `SPEC_GAPS_PLAN.md` in the working tree. These removals are not committed.
+  `SPEC_GAPS_PLAN.md`.
 - `SPEC_GAPS_PLAN.md` now shows Chunk 4 as the next active implementation
   slice after Chunk 0.
-- `SPEC.md` section 12.4 now defines target resolution and visibility for
+- `SPEC_GAPS_PLAN.md` has an uncommitted maintenance edit replacing later
+  dependency references to "Chunk 3 target visibility rules" with
+  "`SPEC.md` section 12.4 target visibility rules."
+- `SPEC.md` section 12.4 defines target resolution and visibility for
   `inspect`, `ps`, `report`, and `map`.
-- `SPEC.md` section 12.4 states numeric PID and `pid:<pid>` targets resolve
-  from the full visible process scan before default host hiding.
-- `SPEC.md` section 12.4 states artifact ID targets resolve only against
-  current-invocation post-filter assigned IDs.
-- `SPEC.md` section 12.4 states `--include-host` broadens artifact visibility
-  and ID assignment but does not change host PID target lookup.
-- `SPEC.md` section 13.5 now states untargeted `map` uses `list` visibility,
-  `--include-host` includes host-classified artifacts before ID assignment, and
-  targeted `map` uses section 12.4 target resolution.
-- `DESIGN.md` section 11 now reflects the Chunk 3 target-resolution flow for
-  `inspect`, `ps`, `report`, and `map`.
+- `SPEC.md` section 13.5 currently gives only high-level `map` behavior plus
+  Chunk 3 visibility wording. It does not define relationship enum values,
+  namespace-type scope, pairwise shape, duplicate suppression, or deterministic
+  ordering.
+- `DESIGN.md` has a JSON `relationship` object example with fields
+  `left_artifact_id`, `relationship`, `namespace_type`, `namespace_id`,
+  `right_artifact_id`, and `detail`, but the normative map semantics are not
+  fully defined in `SPEC.md`.
 
-Source gap facts for next chunk:
+Source gap facts for Chunk 4:
 
-- `GAP-7/S1`: Define v1.0 relationship enum values.
-- `GAP-7/S2`: Define namespace types that generate relationship rows.
+- `GAP-7/S1`: Define v1.0 relationship enum values. Source recommendation:
+  use `shares-namespace`; use `differs-namespace` only if the map view
+  intentionally emits contrast rows.
+- `GAP-7/S2`: Define namespace types included in map generation. Source
+  recommendation: emit relationship rows for PID, mount, network, and user
+  namespaces by default; include UTS, IPC, cgroup, and time only when required
+  by the map contract or grouping mode.
 - `GAP-7/S3`: Define relationship shape as pairwise artifact rows grouped by
-  namespace ID.
-- `GAP-7/S4`: Apply visibility rules from Chunk 3 to untargeted,
-  `--include-host`, and targeted map output.
-- `GAP-7/S5`: Define deterministic ordering for raw, JSON, and NDJSON output.
+  namespace ID, omit self-relationships, and suppress duplicates by
+  `(left_artifact_id, relationship, namespace_type, namespace_id,
+  right_artifact_id)`.
+- `GAP-7/S4`: Apply the target visibility rules from `SPEC.md` section 12.4 to
+  untargeted, `--include-host`, and targeted map output.
+- `GAP-7/S5`: Define deterministic ordering for raw, JSON, and NDJSON:
+  namespace type order, namespace ID bytewise, left artifact sort order, right
+  artifact sort order, relationship enum order, then detail bytewise.
 
 ## Established Decisions And Traceability
 
@@ -73,37 +86,47 @@ Relevant source locations:
   dependencies, optional sub-agent task, and stop condition.
 - `SPEC_GAPS.md` Gap 6 / `GAP-7/*`: original map relationship source slices.
 - `SPEC.md` section 13.5: current map command surface and visibility text.
-- `DESIGN.md` map output contract sections and section 11.5 command flow.
+- `DESIGN.md` section 10.3: JSON command document for `map` and the current
+  `relationship` object example.
+- `DESIGN.md` section 11.5: current `map` command-flow pseudocode.
 
 ## Changed Artifacts
 
-- `SPEC.md`: added section 12.4 target-resolution rules; aligned cgroup
-  visibility wording and command-specific target references.
-- `DESIGN.md`: aligned target-capable command pseudocode with PID versus
-  artifact ID target resolution.
-- `SPEC_GAPS_PLAN.md`: removed completed Chunk 1, Chunk 2, and Chunk 3 active
-  plan sections; updated recommended work order to start at Chunk 4.
+- `SPEC_GAPS_PLAN.md`: uncommitted maintenance edit replacing completed Chunk 3
+  dependency wording with references to `SPEC.md` section 12.4.
 - `.codex/handoffs/current.md`: overwritten with this handoff.
+
+No Chunk 4 implementation edits have been made yet.
 
 ## Checks And Evidence
 
-Commands run:
+Commands run while preparing this handoff:
 
-- `git diff --check` passed after Chunk 3 edits.
-- `rg -n "targeted explicitly|artifact target|bypass default|full visible process scan|include-host|section 12\\.4|Chunk 3|Target Visibility" SPEC.md DESIGN.md SPEC_GAPS_PLAN.md .codex/handoffs/current.md`
-  showed no stale `SPEC.md`, `DESIGN.md`, or `SPEC_GAPS_PLAN.md` target
-  visibility wording after the edits; the old Chunk 3 references were only in
-  the prior handoff before this update.
+- `git status --short --branch` showed `## main...origin/main` plus modified
+  `SPEC_GAPS_PLAN.md`.
+- `sed -n '60,115p' SPEC_GAPS_PLAN.md`
+- `sed -n '245,275p' SPEC_GAPS.md`
+- `sed -n '990,1040p' SPEC.md`
+- `sed -n '620,845p' DESIGN.md`
+- `git diff -- SPEC_GAPS_PLAN.md`
+
+Checks from the previous Chunk 3 commit:
+
+- `git diff --check` passed.
+- `test/smoke.sh` passed with `ok - scaffold smoke tests passed`.
 
 ## Risks, Blockers, And Open Questions
 
 Open Chunk 4 decisions to encode:
 
-- Exact v1.0 map relationship enum values.
-- Namespace types that generate relationship rows.
-- Pairwise relationship record shape and identity fields.
-- Self-relationship omission and duplicate suppression.
-- Deterministic ordering for raw, JSON, and NDJSON map output.
+- Whether v1.0 should emit only `shares-namespace` rows or also
+  `differs-namespace` contrast rows.
+- Exact namespace-type inclusion rule for major namespaces versus minor
+  namespaces.
+- Exact raw, JSON, and NDJSON record ordering after artifact visibility and ID
+  assignment.
+- Whether `DESIGN.md` relationship object examples need to change after the
+  normative `SPEC.md` rule is written.
 
 ## Immediate Next Action And Owner
 
@@ -113,6 +136,6 @@ Draft and apply the `SPEC.md` section 13.5 relationship enum for `GAP-7/S1`.
 
 ## Resume Notes
 
-Use `03-contract` only if the map record shape becomes the main work. Use
-`05-test` only after moving from map rule definition to `GAP-7/S6` fixture
+Use `03-contract` only if defining the map record shape becomes the main work.
+Use `05-test` only after moving from map rule definition to `GAP-7/S6` fixture
 planning.

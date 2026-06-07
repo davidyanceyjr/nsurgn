@@ -79,13 +79,13 @@ Planned spec/design work:
 - Define relationship shape as pairwise artifact rows grouped by namespace ID.
 - Omit self-relationships.
 - Suppress duplicates using the specified relationship identity fields.
-- Apply visibility rules from Chunk 3 to untargeted, `--include-host`, and
-  targeted map output.
+- Apply the target visibility rules from `SPEC.md` section 12.4 to untargeted,
+  `--include-host`, and targeted map output.
 - Define deterministic ordering for raw, JSON, and NDJSON output.
 
 Dependencies:
 
-- Chunk 3 target visibility rules.
+- `SPEC.md` section 12.4 target visibility rules.
 
 Optional sub-agent:
 
@@ -122,7 +122,7 @@ Planned spec/design work:
 
 Dependencies:
 
-- Chunk 3 target visibility rules.
+- `SPEC.md` section 12.4 target visibility rules.
 - Existing command primary-output definitions in `SPEC.md` section 13.
 
 Stop condition:
@@ -166,7 +166,7 @@ Dependencies:
 
 - Chunk 1 evidence rules.
 - Chunk 2 anomaly rules.
-- Chunk 3 target visibility rules.
+- `SPEC.md` section 12.4 target visibility rules.
 - Chunk 4 map semantics.
 - Chunk 5 exit-code materiality.
 
