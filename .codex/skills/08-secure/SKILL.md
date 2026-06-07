@@ -8,100 +8,84 @@ description: Use when the user wants to secure, threat model, harden, review aut
 
 ## Purpose
 
-This skill helps identify, reduce, and validate software security risks across design, code, configuration, dependencies, and operations. Use it to make security reasoning explicit, prioritize realistic threats, and produce practical remediation steps without turning every engineering task into a full security review.
+Use this skill to identify, reduce, patch, and validate software security risks across design, code, configuration, dependencies, and operations. It makes security reasoning explicit, prioritizes realistic threats, and produces practical remediation without turning every engineering task into a full security review.
 
-It owns security-driven vulnerability remediation, including applying patches and validating them when patching is the central task. It may use implementation support without surrendering ownership of the security-centered patch.
+This skill owns security-driven vulnerability remediation, including patches and validation when remediation is the central task. It may use implementation support without surrendering ownership of the security-centered patch.
 
-## When to use
+## Use when
 
-* Use when designing or reviewing authentication, authorization, access control, session handling, permissions, or identity flows.
-* Use when analyzing threats, abuse cases, trust boundaries, sensitive data handling, secrets, encryption, or input/output validation.
-* Use when reviewing code, configuration, dependencies, infrastructure, APIs, or workflows for vulnerabilities.
-* Use when patching a known vulnerability or evaluating whether a reported issue is exploitable.
-* Use when creating security tests, hardening guidance, or security acceptance criteria.
+* Designing or reviewing authentication, authorization, access control, session handling, permissions, identity flows, or privilege boundaries.
+* Analyzing threats, abuse cases, trust boundaries, sensitive data handling, secrets, encryption, validation, or exposure risk.
+* Reviewing code, configuration, dependencies, infrastructure, APIs, or workflows for vulnerabilities.
+* Patching a known vulnerability or evaluating whether a reported issue is exploitable.
+* Creating security tests, hardening guidance, security acceptance criteria, or dependency-risk assessments.
 
-## When not to use
+## Route elsewhere when
 
-* Do not use for general feature implementation where security is not the main concern.
-* Do not use for ordinary test planning unless the tests are specifically security-focused.
-* Do not use for deployment automation unless security controls, permissions, secrets, or environment hardening are central.
-* Do not use for performance, reliability, or observability work unless those issues create or expose security risk.
-* Do not use as a substitute for legal, compliance, privacy, or formal audit advice.
+* General feature implementation is primary and security is not the main concern: use `04-build/SKILL.md`.
+* Ordinary test planning is primary and tests are not security-specific: use `05-test/SKILL.md`.
+* Deployment automation is primary and security controls, permissions, secrets, or environment hardening are not central: use `11-release/SKILL.md`.
+* Performance, reliability, observability, or maintainability is primary and does not create or expose security risk: use `09-operate/SKILL.md` or `10-improve/SKILL.md`.
+* Security requirements, roles, constraints, or acceptance criteria are unclear: use `01-understand/SKILL.md`.
+* Security concerns require system-boundary or component-responsibility decisions: use `02-design/SKILL.md`.
+* Security depends on API contracts, schemas, data models, or integration boundaries: use `03-contract/SKILL.md`.
+* Formal security notes, runbooks, decision records, or user-facing security documentation are primary: use `06-document/SKILL.md`.
+* The user needs legal, compliance, privacy, or formal audit advice: state that this skill cannot provide that substitute.
 
-## Inputs to look for
+## Inputs to inspect
 
-* System purpose, user roles, privilege levels, assets, sensitive data, and business impact.
-* Architecture, data flows, trust boundaries, external integrations, APIs, storage, and deployment environment.
-* Authentication, authorization, session, token, secret, key, certificate, and permission model.
-* Relevant code, configuration, dependency manifests, infrastructure definitions, logs, or vulnerability reports.
-* Threat assumptions, attacker capabilities, known constraints, acceptable risk, and required security standards.
-* Existing controls, monitoring, tests, incident history, and patch or rollback constraints.
+* System purpose, assets, actors, user roles, privilege levels, sensitive data, and business impact.
+* Architecture, data flows, trust boundaries, external integrations, APIs, storage, deployment environment, and exposure paths.
+* Authentication, authorization, session, token, secret, key, certificate, and permission models.
+* Relevant code, configuration, dependency manifests, infrastructure definitions, logs, vulnerability reports, existing controls, monitoring, and tests.
+* Threat assumptions, attacker capabilities, known constraints, acceptable risk, required standards, incident history, patch constraints, and rollback constraints.
 
 ## Procedure
 
-1. Define the security scope. Identify the asset, operation, user role, data type, environment, and boundary being reviewed. State what is in scope and what is intentionally out of scope.
+1. **Define scope.** Identify the asset, operation, user role, data type, environment, and boundary under review. State what is in scope and intentionally out of scope.
 
-2. Map the trust model. Identify callers, services, storage systems, external dependencies, privileged paths, unauthenticated paths, and places where data crosses trust boundaries.
+2. **Map the trust model.** Identify callers, services, storage systems, external dependencies, privileged paths, unauthenticated paths, and every place data crosses a trust boundary.
 
-3. Identify realistic threats. Consider broken access control, injection, unsafe deserialization, insecure direct object references, credential leakage, weak session handling, insufficient validation, dependency compromise, insecure defaults, and privilege escalation. Focus on threats that match the actual system.
+3. **Identify realistic threats.** Consider broken access control, injection, unsafe deserialization, insecure direct object references, credential leakage, weak session handling, insufficient validation, dependency compromise, insecure defaults, and privilege escalation. Focus on threats that match the actual system.
 
-4. Evaluate existing controls. Check whether the system authenticates the right actor, authorizes every sensitive action, validates untrusted input, protects secrets, limits exposure, logs security-relevant events, and fails safely.
+4. **Evaluate controls.** Check whether the system authenticates the right actor, authorizes every sensitive action, validates untrusted input, protects secrets, limits exposure, logs security-relevant events, and fails safely.
 
-5. Prioritize findings by risk. Estimate likelihood, impact, exploitability, affected users or data, compensating controls, and exposure. Separate confirmed vulnerabilities from hypotheses and hardening opportunities.
+5. **Prioritize findings.** Estimate likelihood, impact, exploitability, affected users or data, exposure, and compensating controls. Separate confirmed vulnerabilities from hypotheses and hardening opportunities.
 
-6. Remediate the risk. Prefer narrow, actionable changes: stricter authorization checks, safer APIs, parameterized queries, schema validation, secret rotation, dependency upgrades, least-privilege permissions, secure defaults, rate limits, audit logging, or defense-in-depth controls. Apply the patch when requested and security remediation is central.
+6. **Remediate the risk.** Prefer narrow, actionable changes such as stricter authorization checks, safer APIs, parameterized queries, schema validation, secret rotation, dependency upgrades, least-privilege permissions, secure defaults, rate limits, audit logging, or defense-in-depth controls. Apply the patch when requested and security remediation is central.
 
-7. Define validation. Provide security tests, regression checks, abuse cases, review steps, or manual verification needed to prove the issue is fixed and does not reappear.
+7. **Define validation.** Provide or run security tests, regression checks, abuse cases, review steps, or manual verification that prove the issue is fixed and resistant to recurrence.
 
-8. Document residual risk. State unresolved assumptions, tradeoffs, monitoring needs, follow-up work, and any risk that remains after mitigation.
+8. **Document residual risk.** State unresolved assumptions, tradeoffs, monitoring needs, follow-up work, and any risk that remains after mitigation.
 
 ## Subagent delegation
 
-Subagents are optional. Use them only when independent threat perspectives, disjoint attack surfaces, bounded evidence collection, or a second review of high-risk findings has a concrete advantage. Keep tasks read-only unless a narrowly scoped patch with a disjoint write scope is explicitly assigned. Do not expose secrets or unnecessary sensitive data, and do not delegate live operations or destructive actions.
+Subagents are optional. Use them only when independent threat perspectives, disjoint attack surfaces, bounded evidence collection, or second review of high-risk findings has a clear advantage.
 
-For each delegation, state the expected advantage and explicitly invoke `08-secure/SKILL.md` in a bounded, self-contained prompt with sanitized inputs, scope, and expected output. Prohibit recursive delegation and unsupported severity, risk acceptance, remediation-complete claims, evidence, statuses, or ownership changes. The parent must review and integrate results, validate exploitability and severity, own final security conclusions, resolve contradictions, and close completed agents promptly.
+Prefer read-only delegation. Any edit authority must name a narrow, disjoint write scope. Do not expose secrets or unnecessary sensitive data, and do not delegate live operations, destructive actions, risk acceptance, severity ownership, or remediation-complete claims.
 
-Faster models may perform inventory or known-pattern checks with objective acceptance criteria. Threat synthesis, severity, remediation acceptance, and ambiguous or high-risk conclusions require stronger reasoning or parent completion. Model choice never lowers the evidence or review standard.
+Each delegation must invoke `08-secure/SKILL.md`, use sanitized inputs, define scope and expected output, prohibit recursive delegation, and include a clear stop condition. The parent integrates results, validates exploitability and severity, resolves contradictions, and owns final security conclusions.
 
 ## Expected outputs
 
-* Threat model, abuse-case list, or security review summary.
-* Prioritized vulnerability findings with severity, evidence, impact, and remediation.
-* Secure design recommendations for auth, access control, data protection, secrets, or trust boundaries.
-* Patch plan with implementation guidance and validation steps.
-* Applied security patch or remediation with validation evidence when requested.
-* Security test cases, regression checks, or acceptance criteria.
-* Risk notes distinguishing confirmed issues, assumptions, and hardening opportunities.
+* Threat models, abuse-case lists, or security review summaries.
+* Prioritized vulnerability findings with severity, evidence, impact, exploitability, and remediation.
+* Secure design recommendations for authentication, authorization, access control, data protection, secrets, permissions, or trust boundaries.
+* Patch plans with implementation guidance and validation steps.
+* Applied security patches or remediation with validation evidence when requested.
+* Security test cases, regression checks, abuse cases, or acceptance criteria.
+* Risk notes distinguishing confirmed issues, assumptions, hardening opportunities, and residual risk.
 
-## Quality checks
+## Quality standard
 
-* The review identifies assets, actors, trust boundaries, and sensitive operations before listing fixes.
-* Findings are specific, evidence-based, and tied to realistic exploit paths.
-* Recommendations are actionable and scoped to the system rather than generic security advice.
-* Authentication and authorization are treated separately.
-* Secrets, tokens, credentials, keys, certificates, and environment variables are not exposed in output.
-* Severity reflects actual impact and likelihood, not just theoretical weakness.
-* Validation steps prove the control works and include negative or abuse-case testing where appropriate.
-* Residual risks and assumptions are explicit.
-
-## Anti-patterns
-
-* Avoid treating every bug as a security vulnerability without a plausible exploit path.
-* Avoid giving generic checklists that ignore the system’s architecture and data flow.
-* Avoid recommending encryption, rate limiting, or zero trust as vague catch-all fixes.
-* Avoid focusing only on input validation while missing authorization, secrets, and privilege boundaries.
-* Avoid exposing or repeating sensitive values found in code, logs, screenshots, or configuration.
-* Avoid overloading general implementation or deployment tasks with security review unless security is central.
-* Avoid claiming compliance, audit readiness, or complete safety from a limited review.
-
-## Related skills
-
-* `01-understand/SKILL.md` — use only when security requirements, user roles, constraints, or acceptance criteria are unclear.
-* `02-design/SKILL.md` — use only when security concerns require changes to system boundaries, component responsibilities, or high-level design.
-* `03-contract/SKILL.md` — use only when the security work depends on API contracts, schemas, data models, or integration boundaries.
-* `04-build/SKILL.md` — use only for implementation support around a security-owned patch or when ordinary implementation, rather than vulnerability remediation, is central.
-* `05-test/SKILL.md` — use only when broader non-security test planning is needed around the security change.
-* `11-release/SKILL.md` — use only when deployment permissions, secrets management, cloud controls, CI/CD security, or rollback are central.
-* `09-operate/SKILL.md` — use only when security logging, alerting, incident investigation, or operational diagnostics are required.
-* `10-improve/SKILL.md` — use only when security fixes introduce major performance or maintainability tradeoffs.
-* `06-document/SKILL.md` — use only when producing formal security notes, runbooks, decision records, or user-facing security documentation.
+* Identify assets, actors, trust boundaries, and sensitive operations before listing fixes.
+* Ground findings in specific evidence and plausible exploit paths.
+* Keep recommendations actionable and scoped to the actual system, not generic security advice.
+* Treat authentication and authorization as separate controls.
+* Do not expose, repeat, or unnecessarily transform secrets, tokens, credentials, keys, certificates, or sensitive environment values.
+* Set severity from actual impact, likelihood, exploitability, exposure, and compensating controls, not theoretical weakness alone.
+* Validate controls with positive and negative checks, including abuse-case testing where appropriate.
+* Make assumptions and residual risks explicit.
+* Avoid vague catch-all fixes such as encryption, rate limiting, or zero trust without a concrete threat path.
+* Avoid overloading general implementation or deployment work with security review unless security is central.
+* Do not claim compliance, audit readiness, complete safety, or full risk elimination from a limited review.

@@ -8,110 +8,79 @@ description: Use when the user wants to review, inspect, lint, format, clean up,
 
 ## Purpose
 
-This skill helps manage code changes safely and reviewably. It covers version control workflow, branch hygiene, commit quality, pull request preparation, code review, static analysis, formatting, linting, and code-quality checks that make implementation easier to understand, maintain, and merge.
+Use this skill to keep code changes organized, safe, reviewable, and ready for established quality gates. It covers Git workflow, branch hygiene, commit quality, pull request preparation, code review, formatting, linting, static analysis, and narrow cleanup that reduces review friction.
 
-Use this skill to keep changes organized, reduce review friction, and prevent avoidable defects from entering the codebase. It should not take over feature implementation, testing strategy, deployment, or production diagnostics.
+This skill owns review readiness. It does not take over feature implementation, test strategy, deployment, runtime troubleshooting, formal security review, or broad refactoring.
 
-## When to use
+## Use when
 
-* Use when creating, reviewing, or improving Git branches, commits, diffs, pull requests, or merge plans.
-* Use when preparing code for review through formatting, linting, static analysis, dependency checks, or cleanup.
-* Use when analyzing a code review comment, proposing review feedback, or deciding whether a change is ready to merge.
-* Use when splitting large changes into smaller commits or pull requests.
-* Use when resolving merge conflicts, rebase issues, cherry-picks, revert plans, or release-branch hygiene.
-* Use when cleanup is narrowly limited to making an active change easier to review or pass established quality gates.
+* Creating, reviewing, improving, splitting, or preparing branches, commits, diffs, pull requests, or merge plans.
+* Checking code hygiene through formatting, linting, static analysis, dependency checks, accidental-file inspection, or cleanup.
+* Reviewing code changes, triaging review comments, drafting review feedback, or deciding whether a change is ready to merge.
+* Handling merge conflicts, rebases, cherry-picks, reverts, or release-branch hygiene.
+* Cleanup is narrowly scoped to making an active change easier to review or pass established quality gates.
 
-## When not to use
+## Route elsewhere when
 
-* Do not use when the main task is writing or modifying production feature code; use `04-build/SKILL.md`.
-* Do not use when the main task is designing or validating tests; use `05-test/SKILL.md`.
-* Do not use when the main task is deployment, CI/CD platform setup, containers, or rollback operations; use `11-release/SKILL.md`.
-* Do not use when the main task is production troubleshooting, logs, metrics, or incident response; use `09-operate/SKILL.md`.
-* Do not use for formal security review unless code review is only a support activity; use `08-secure/SKILL.md`.
-* Do not use when refactoring, technical debt reduction, or maintainability improvement is the main task; use `10-improve/SKILL.md`.
+* Main feature or bug-fix implementation is required: use `04-build/SKILL.md`.
+* Test design, test creation, regression coverage, or bug verification is primary: use `05-test/SKILL.md`.
+* Deployment, CI/CD platform setup, containers, rollout, or rollback is primary: use `11-release/SKILL.md`.
+* Production diagnostics, logs, metrics, or incident response is primary: use `09-operate/SKILL.md`.
+* Formal security review, authentication, authorization, secrets, permissions, vulnerabilities, or threat modeling is primary: use `08-secure/SKILL.md`.
+* Refactoring, technical debt, maintainability, performance, or scalability improvement is primary: use `10-improve/SKILL.md`.
+* Durable docs such as contribution guides, review policies, changelogs, or decision records are primary: use `06-document/SKILL.md`.
 
-## Inputs to look for
+## Inputs to inspect
 
-* Repository status, branch name, target branch, and whether the work is local or already pushed.
-* The user’s goal: commit, branch, review, merge, rebase, revert, clean up, or prepare a pull request.
-* Relevant diffs, changed files, commit history, review comments, failing quality checks, or static analysis output.
-* Project conventions for branch names, commit message style, formatting, linting, code owners, and pull request templates.
-* Risk level of the change, affected modules, generated files, migrations, public interfaces, or dependency changes.
-* Available implementation status, compact requirement traceability, and functional validation evidence.
-* Whether the user wants commands, review feedback, a PR description, or a quality assessment.
+* Repository status, branch name, target branch, staged changes, untracked files, conflicts, and remote divergence.
+* The user's goal: review, clean up, commit, branch, rebase, merge, revert, push, or prepare a pull request.
+* Relevant diffs, changed files, commit history, review comments, failing checks, static-analysis output, and traceability notes.
+* Project conventions for branch names, commit messages, formatting, linting, code owners, PR templates, generated files, migrations, dependencies, and lockfiles.
+* Risk level of affected modules, public interfaces, generated artifacts, configuration, dependencies, migrations, and user-facing behavior.
+* Validation already performed and the exact output the user wants: commands, review findings, PR text, workflow guidance, or readiness assessment.
 
 ## Procedure
 
-1. **Determine the workflow state.** Identify the current branch, target branch, changed files, staged changes, untracked files, and whether there are pending conflicts or remote divergence. Avoid destructive commands unless the user explicitly requests them or the effect is clearly reversible.
+1. **Inspect workflow state.** Identify branch, target, status, staged and unstaged files, untracked files, conflicts, and remote divergence. Preserve user work. Avoid destructive commands unless explicitly requested and clearly explained.
 
-2. **Classify the change.** Decide whether the work is a feature, bug fix, refactor, dependency update, configuration change, documentation update, or generated output. Use that classification to guide commit boundaries, review focus, and risk checks.
+2. **Classify and scope the change.** Determine whether the work is a feature, bug fix, refactor, dependency update, configuration change, documentation update, generated output, or review-only cleanup. Keep commit and PR boundaries focused.
 
-3. **Inspect change quality.** Review the diff for unrelated edits, noisy formatting, accidental files, secrets, debug code, dead code, unclear names, excessive complexity, inconsistent style, or missing documentation comments where expected by the project. When compact traceability exists, use it to find omitted requirements, unrelated changes, and unsupported completion claims without taking ownership of requirements, implementation, or test design.
+3. **Review diff and repository hygiene.** Look for unrelated edits, noisy formatting, accidental files, secrets, debug code, dead code, unclear names, excessive complexity, generated-file drift, mismatched lockfiles, missing migration intent, or unsupported completion claims. Use traceability notes when present to catch omitted requirements or unrelated work.
 
-4. **Check repository hygiene.** Confirm the branch is based on the correct target, commits are logically grouped, generated files are intentional, lockfiles match dependency changes, and large binary or environment-specific files are not accidentally included.
+4. **Run applicable quality gates.** Prefer existing project commands for formatting, linting, type checking, static analysis, dependency validation, and pre-commit hooks. Infer cautiously from manifests, Makefiles, CI configs, and tool configs when commands are unknown.
 
-5. **Apply project quality gates.** Prefer existing project commands for formatting, linting, type checking, static analysis, dependency validation, and pre-commit hooks. When commands are unknown, infer cautiously from repository files such as package manifests, Makefiles, CI configs, or tool configs.
+5. **Prepare review artifacts.** Recommend staging related files together, splitting unrelated work, and using concise commit messages that explain what changed and why. For PRs, summarize intent, key changes, risks, validation, linked issues, migration notes, rollout concerns, and reviewer focus areas without claiming unperformed checks.
 
-6. **Prepare reviewable commits.** Recommend staging only related files together. Use concise commit messages that explain what changed and why. Split unrelated work into separate commits or branches when that reduces review risk.
+6. **Handle review and integration safely.** When reviewing, lead with correctness, maintainability, clarity, security-sensitive mistakes, test impact, and compatibility. When responding to review, address the substance with concrete changes. For merges, rebases, cherry-picks, conflicts, and reverts, explain side effects and verification steps, especially for history rewriting.
 
-7. **Prepare the pull request.** Summarize intent, key changes, risk areas, validation performed, linked issues, migration notes, rollout concerns, and reviewer focus areas. Keep the PR description factual and scoped to the actual diff.
-
-8. **Review or respond to review.** When reviewing, prioritize correctness, maintainability, clarity, security-sensitive mistakes, test impact, and compatibility. When responding, address the substance, propose concrete changes, and avoid defensive wording.
-
-9. **Handle integration safely.** For merges, rebases, conflict resolution, cherry-picks, and reverts, explain the safest path, expected side effects, and verification steps. Preserve user work and call out commands that rewrite history.
-
-10. **Finalize with verification.** Confirm the working tree state, quality checks run, unresolved risks, and next action: commit, push, open PR, request review, merge, or revise. When merge readiness is requested, conclude `MERGE READY`, `NOT MERGE READY`, or `BLOCKED` with concise evidence. Treat implementation and functional-validation results as review inputs, not proof of merge readiness.
+7. **Finalize with evidence.** Report working-tree state, checks run, unresolved risks, and the next action. When merge readiness is requested, conclude exactly one of `MERGE READY`, `NOT MERGE READY`, or `BLOCKED`, with concise evidence. Treat implementation status and functional validation as inputs, not automatic proof of readiness.
 
 ## Subagent delegation
 
-Subagents are optional. Use them only when independent diff review, disjoint file review, repository-hygiene inspection, or CI/static-analysis triage has a concrete coverage or speed advantage. Prefer read-only tasks. Any edit authority must use an explicit, disjoint file scope and must exclude Git history changes, commits, pushes, merges, rebases, destructive operations, and overlapping work.
+Subagents are optional. Use them only when a bounded, independent task has a clear speed or coverage advantage, such as disjoint diff review, repository-hygiene inspection, static-analysis triage, or objective formatting checks.
 
-For each delegation, state the expected advantage and explicitly invoke `07-review/SKILL.md` in a bounded, self-contained prompt with the inputs, write scope or read-only restriction, and expected output. Prohibit recursive delegation and unsupported findings, evidence, statuses, or ownership changes. The parent must review and integrate results, resolve contradictions, retain the final review findings and merge-readiness assessment, and close completed agents promptly.
+Prefer read-only delegation. Any edit authority must name a disjoint file scope and must exclude Git history changes, commits, pushes, merges, rebases, destructive operations, and overlapping work. Each delegation must invoke `07-review/SKILL.md`, prohibit recursive delegation, define expected output, and include a clear stop condition.
 
-Faster models may check formatting, accidental files, reference validity, or repetitive static-analysis output with objective acceptance criteria. Correctness-sensitive review and merge-readiness conclusions require stronger reasoning and parent confirmation. Model choice never lowers the evidence or review standard.
+The parent integrates results, resolves contradictions, confirms evidence, and owns the final review findings and merge-readiness assessment.
 
 ## Expected outputs
 
-* A safe Git workflow plan with commands when appropriate.
-* Clean branch, commit, rebase, merge, cherry-pick, or revert guidance.
-* Review comments that are specific, actionable, and prioritized.
-* A concise pull request title and description.
-* A code-quality checklist tailored to the actual change.
-* Identification of accidental files, unrelated changes, style issues, or review blockers.
-* Static analysis, formatting, linting, or pre-commit recommendations based on project conventions.
-* A `MERGE READY`, `NOT MERGE READY`, or `BLOCKED` assessment with remaining risks and validation status when readiness is requested.
-* Review-readiness findings for omitted requirements, unrelated changes, or unsupported completion claims when traceability is available.
+* Safe Git workflow plans with commands when useful.
+* Branch, commit, rebase, merge, cherry-pick, or revert guidance.
+* Specific, actionable review comments ordered by risk.
+* Concise pull request titles and descriptions.
+* Code-quality checklists tailored to the actual change.
+* Identification of accidental files, unrelated changes, style issues, unsupported claims, or review blockers.
+* Static-analysis, formatting, linting, pre-commit, generated-file, dependency, or lockfile recommendations based on project conventions.
+* `MERGE READY`, `NOT MERGE READY`, or `BLOCKED` assessments with evidence, remaining risks, and validation status when readiness is requested.
 
-## Quality checks
+## Quality standard
 
-* The suggested workflow preserves user work and avoids unnecessary destructive operations.
-* Commands match the user’s stated goal, repository state, and target branch.
-* Commit boundaries are logical and do not mix unrelated concerns.
-* Review feedback is grounded in the diff, not generic preference.
-* Quality checks use existing project tooling when discoverable.
-* Pull request text accurately reflects the change and does not claim unperformed validation.
-* Merge-readiness conclusions distinguish implementation status from functional verification and review quality.
-* Generated files, lockfiles, migrations, and configuration changes are handled intentionally.
-* Any history-rewriting operation, such as rebase or reset, includes a clear warning and safer alternative when appropriate.
-
-## Anti-patterns
-
-* Avoid rewriting history on shared branches without explicit user intent.
-* Avoid suggesting `git reset --hard`, force-push, or broad cleanup commands without explaining data-loss risk.
-* Avoid mixing feature work, formatting sweeps, dependency updates, and refactors in one review unless intentionally scoped.
-* Avoid expanding review-focused cleanup into broader refactoring or technical debt work.
-* Avoid vague review comments such as “clean this up” without a concrete reason or suggestion.
-* Avoid treating lint or formatting as a substitute for correctness review.
-* Avoid generating commit messages or PR descriptions that exaggerate scope or validation.
-* Avoid treating code-complete status as proof that a change is tested, merge ready, releasable, or production ready.
-* Avoid loading implementation, testing, deployment, or observability concerns unless they are directly needed for source-control or review quality.
-* Avoid framework-specific review rules unless the repository clearly uses that framework.
-
-## Related skills
-
-* `04-build/SKILL.md` — use only when the task requires writing or changing production code beyond review-focused cleanup.
-* `05-test/SKILL.md` — use only when test design, test creation, regression coverage, or bug verification is a primary concern.
-* `08-secure/SKILL.md` — use only when review findings involve authentication, authorization, secrets, permissions, vulnerabilities, or threat modeling.
-* `11-release/SKILL.md` — use only when branch workflow affects CI/CD, release automation, deployment, rollback, or environment configuration.
-* `10-improve/SKILL.md` — use when refactoring, performance, scalability, technical debt, or maintainability improvement is the main task rather than review readiness.
-* `06-document/SKILL.md` — use only when the task requires durable documentation such as contribution guides, review policies, changelogs, or decision records.
+* Preserve user work and avoid unnecessary destructive operations.
+* Warn clearly before history-rewriting or data-loss-prone commands such as rebase, reset, force-push, broad cleanups, and destructive conflict resolution.
+* Ground review feedback in the diff, project conventions, and observed evidence, not generic preference.
+* Keep formatting, dependency updates, generated files, feature work, refactors, and unrelated cleanup separate unless intentionally scoped together.
+* Use linting and formatting as quality inputs, not substitutes for correctness review.
+* Do not exaggerate scope or validation in commit messages, PR descriptions, review responses, or readiness conclusions.
+* Distinguish code-complete status from tested, merge-ready, releasable, or production-ready status.
+* Avoid expanding review-focused cleanup into implementation, testing, release, security, observability, or broad refactoring ownership.
