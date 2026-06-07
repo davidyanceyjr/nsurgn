@@ -1,5 +1,12 @@
 # nsurgn v1.0 Blocking Spec Gaps
 
+Status: Deprecated
+Replacement: `SPEC_GAPS_PLAN.md`
+Deprecated: 2026-06-07
+
+This file is retained as the source gap inventory. Use `SPEC_GAPS_PLAN.md` as
+the active coordination plan for resolving these gaps.
+
 This note captures gaps in `SPEC.md` and `DESIGN.md` that could block stable
 implementation, fixture design, or acceptance testing for the v1.0 foundation.
 It is not a redesign proposal; each item should be resolved by tightening the
@@ -56,16 +63,14 @@ Blocking questions:
 
 - What regex defines a "32- to 64-character lowercase hexadecimal container ID"?
 - Are matches case-sensitive for cgroup/runtime hints?
-- Which `mountinfo` fields are searched for overlay, snapshotter, Kubernetes
-  projected, and serviceaccount evidence?
 - What exact `exe_path` value means "executable path is deleted"?
 - What command or executable patterns count as `unshare`-style metadata?
 
 Needed clarification:
 
 - Exact regexes or shell-compatible matching rules.
-- Field scope for each match: cgroup path, mount source, mount type, optional
-  mount fields, `comm`, `cmdline`, `exe_path`, or root path.
+- Field scope for each remaining match: cgroup path, `comm`, `cmdline`,
+  `exe_path`, or root path.
 - Stable reason codes for every detection.
 
 Source:
@@ -87,10 +92,6 @@ Resolution slices:
   v1.0 rule: cgroup/runtime keyword matches are case-sensitive lowercase unless
   the source format is explicitly normalized before matching. Resolves
   implementation drift across Bash match operators.
-- `GAP-2/S4`: Define `mountinfo` field parsing and search scope for overlay,
-  snapshotter, Kubernetes projected, and serviceaccount evidence. This slice
-  should use the parser terms now defined in `DESIGN.md` section 9.3. Resolves
-  mount-related score and hint detection rules.
 - `GAP-2/S5`: Define deleted executable detection using the exact `readlink`
   output suffix for `/proc/<pid>/exe`, including whether `" (deleted)"` is
   stripped for display or preserved in evidence detail. Resolves the
