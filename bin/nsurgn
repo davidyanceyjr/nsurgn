@@ -1,0 +1,26 @@
+#!/usr/bin/env bash
+
+set -u
+
+NSURGN_BIN_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+NSURGN_ROOT="$(cd -- "${NSURGN_BIN_DIR}/.." && pwd)"
+
+# shellcheck source=lib/util.sh
+. "${NSURGN_ROOT}/lib/util.sh"
+# shellcheck source=lib/errors.sh
+. "${NSURGN_ROOT}/lib/errors.sh"
+# shellcheck source=lib/cli.sh
+. "${NSURGN_ROOT}/lib/cli.sh"
+# shellcheck source=lib/scan.sh
+. "${NSURGN_ROOT}/lib/scan.sh"
+# shellcheck source=lib/doctor.sh
+. "${NSURGN_ROOT}/lib/doctor.sh"
+# shellcheck source=lib/commands.sh
+. "${NSURGN_ROOT}/lib/commands.sh"
+
+main() {
+  nsurgn_cli_parse "$@" || return "$?"
+  nsurgn_dispatch
+}
+
+main "$@"

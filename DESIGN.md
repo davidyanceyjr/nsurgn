@@ -78,6 +78,7 @@ lib/
   cli.sh
   errors.sh
   proc.sh
+  scan.sh
   namespace.sh
   process.sh
   host.sh
