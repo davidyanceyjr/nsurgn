@@ -60,136 +60,6 @@ Stop condition:
 - Reviewers can identify the active plan and verify that every source gap slice
   is represented here.
 
-## Chunk 1: Evidence Foundation
-
-Objective: make score and hint evidence matching deterministic.
-
-Source slices:
-
-- `GAP-2/S1`
-- `GAP-2/S2`
-- `GAP-2/S3`
-- `GAP-2/S5`
-- `GAP-2/S6`
-
-Planned spec/design work:
-
-- Add a normative evidence-matching table to `SPEC.md` section 10.5.
-- For each evidence signal, define searched field, match rule, case
-  sensitivity, emitted reason code, score delta, and hint effect.
-- Define the long lowercase hex ID rule as a path-component rule.
-- Define cgroup and runtime keyword case sensitivity.
-- Define deleted executable detection using `/proc/<pid>/exe` `readlink`
-  behavior.
-- Define accepted `unshare`-style metadata patterns for `comm`, `cmdline`, and
-  `exe_path`.
-
-Dependencies:
-
-- None. This is the lowest-level blocker.
-
-Optional sub-agent:
-
-- Read-only task: inspect `SPEC.md` scoring/hint language and return a compact
-  proposed evidence-matching matrix plus any contradictions. Do not make
-  behavior decisions beyond the source text.
-
-Stop condition:
-
-- Every v1.0 score or hint signal referenced by these slices can be matched
-  deterministically and can emit a stable reason code.
-
-Resolution summary:
-
-- `SPEC.md` section 10.5 now contains a normative evidence-matching table for
-  v1.0 score and hint signals.
-- The table defines searched fields, match rules, case sensitivity, stable
-  reason codes, score deltas, and hint effects.
-- Cgroup matching is defined as case-sensitive matching within path components;
-  the lowercase hex container ID rule is a path-component token regex.
-- Deleted executable detection is defined from the raw `/proc/<pid>/exe`
-  `readlink` suffix `" (deleted)"`, with display fields stripping the suffix
-  and reason detail preserving it.
-- `unshare`-style evidence is limited to accepted `comm`, first-argument
-  `cmdline`, and executable basename matches.
-- `DESIGN.md` mount evidence reason-code examples now use the same underscore
-  identifier style as the normative spec table.
-
-## Chunk 2: Anomaly Determinism
-
-Objective: make `anomalous` classification testable.
-
-Source slices:
-
-- `GAP-1/S1`
-- `GAP-1/S2`
-- `GAP-1/S3`
-
-Planned spec/design work:
-
-- Add a finite v1.0 anomalous trigger table to `SPEC.md` section 10.3.
-- For each trigger, define trigger name, required evidence, reason code,
-  artifact/process scope, and example.
-- State that unreadable metadata is a limitation by default, not anomalous
-  evidence.
-- State that unreadable metadata can set `anomalous` only when combined with a
-  specific v1.0 trigger.
-- Define spoofability handling for process metadata, cgroup paths, and runtime
-  hints.
-
-Dependencies:
-
-- Chunk 1 reason-code and evidence-source decisions.
-
-Stop condition:
-
-- Every anomaly path has deterministic required evidence, and important
-  near-misses are clear enough to turn into fixtures.
-
-Resolution summary:
-
-- `SPEC.md` section 10.3 now defines the finite v1.0 anomaly trigger table for
-  `anomalous` classification.
-- Each trigger defines required evidence, stable reason code, artifact/process
-  scope, and an example.
-- The `anomalous` label glossary and scoring table now point to the finite
-  trigger table instead of broad "hard-to-explain" language.
-- Unreadable metadata is specified as a limitation by default and cannot satisfy
-  anomaly evidence requirements unless a future trigger explicitly allows that
-  metadata state.
-- Spoofable process metadata, cgroup paths, command lines, executable names,
-  and runtime hints may contribute reasons, score, and hints, but cannot create
-  an anomaly without a namespace or filesystem inconsistency.
-
-## Chunk 3: Target Visibility
-
-Objective: define how explicit targets interact with default host hiding.
-
-Source slices:
-
-- `GAP-3/S1`
-- `GAP-3/S2`
-- `GAP-3/S3`
-
-Planned spec/design work:
-
-- Add a command-level target visibility rule for `inspect`, `ps`, `report`, and
-  `map`.
-- Define explicit host PID targets as resolving from the full visible scan,
-  bypassing default host hiding.
-- Define artifact ID targets as post-filter only.
-- Define `--include-host` as affecting broad artifact visibility and ID
-  assignment, not changing explicit PID target resolution.
-
-Dependencies:
-
-- None for target rules.
-
-Stop condition:
-
-- Numeric PID, `pid:<pid>`, and `A<N>` resolution behavior is unambiguous for
-  all target-capable commands.
-
 ## Chunk 4: Map Semantics
 
 Objective: make `nsurgn map` output deterministic.
@@ -308,12 +178,9 @@ Stop condition:
 ## Recommended Work Order
 
 1. Chunk 0: Tracking Cleanup.
-2. Chunk 1: Evidence Foundation.
-3. Chunk 2: Anomaly Determinism.
-4. Chunk 3: Target Visibility.
-5. Chunk 4: Map Semantics.
-6. Chunk 5: Exit-Code Materiality.
-7. Chunk 6: Acceptance Fixture Plan.
+2. Chunk 4: Map Semantics.
+3. Chunk 5: Exit-Code Materiality.
+4. Chunk 6: Acceptance Fixture Plan.
 
 ## Review Checklist
 

@@ -912,7 +912,9 @@ render artifact summaries
 ```text
 parse target
 scan visible processes
-resolve target against current scan
+if target is host PID, resolve from full visible process scan
+if target is artifact ID, filter host artifacts unless --include-host
+if target is artifact ID, assign IDs and resolve against assigned IDs
 render target metadata, namespace comparison, leader reason, and evidence
 ```
 
@@ -921,7 +923,9 @@ render target metadata, namespace comparison, leader reason, and evidence
 ```text
 parse target
 scan visible processes
-resolve target against current scan
+if target is host PID, resolve from full visible process scan
+if target is artifact ID, filter host artifacts unless --include-host
+if target is artifact ID, assign IDs and resolve against assigned IDs
 render process records for the artifact or PID-derived artifact
 ```
 
@@ -929,7 +933,10 @@ render process records for the artifact or PID-derived artifact
 
 ```text
 scan visible processes
-resolve optional target
+if no target, filter host artifacts unless --include-host
+if target is host PID, resolve from full visible process scan
+if target is artifact ID, filter host artifacts unless --include-host
+if target is artifact ID, assign IDs and resolve against assigned IDs
 render detailed artifact report and scan limitations
 ```
 
@@ -937,6 +944,10 @@ render detailed artifact report and scan limitations
 
 ```text
 scan visible processes
+if no target, filter host artifacts unless --include-host
+if target is host PID, resolve from full visible process scan
+if target is artifact ID, filter host artifacts unless --include-host
+if target is artifact ID, assign IDs and resolve against assigned IDs
 derive shared namespace relationships
 render relationship records or text summary
 ```

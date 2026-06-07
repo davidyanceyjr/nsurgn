@@ -456,8 +456,9 @@ classified from the aggregate evidence of its member processes. It is hidden
 from default `list` output when the aggregate has no known PID, mount, network,
 or user namespace difference from the host profile. Minor-only namespace
 differences and cgroup path differences remain reportable evidence, and become
-visible in `list` when `--include-host` is used or when the artifact is targeted
-explicitly by a command that accepts a PID or artifact target.
+visible in `list` when `--include-host` is used. They also become visible to
+target-capable commands when explicitly targeted by host PID as defined in
+section 12.4.
 
 ---
 
@@ -887,6 +888,29 @@ resolve. Scripts must not store artifact IDs as durable references. Scripts
 should prefer `pid:<host_pid>` targets, structured output fields, or
 re-resolving artifacts from a fresh `nsurgn list` result.
 
+### 12.4 Target Resolution And Visibility
+
+The target-capable commands are `inspect`, `ps`, `report`, and `map`.
+
+Target resolution uses these rules:
+
+- Numeric PID targets and `pid:<pid>` targets are host PID targets.
+- Host PID targets resolve against the full visible process scan before default
+  host hiding removes host-classified artifacts from broad output.
+- A host PID target may resolve to an artifact that would be hidden by default
+  `list`, untargeted `report`, or untargeted `map` output.
+- Artifact ID targets resolve only against artifacts that received IDs in the
+  current command invocation after grouping, host profile selection, and
+  artifact visibility filtering.
+- Artifact ID targets cannot reference artifacts hidden from the current
+  command invocation. To target a hidden host-classified artifact by artifact
+  ID, the invocation must use a visibility option such as `--include-host` that
+  includes that artifact before ID assignment.
+- `--include-host` broadens artifact visibility and therefore affects artifact
+  ID assignment, untargeted `report`, and untargeted `map` output. It does not
+  change host PID target lookup because host PID targets already resolve from
+  the full visible process scan.
+
 ---
 
 ## 13. Command Specifications
@@ -919,6 +943,8 @@ A3	isolated	5	9051	-	1	systemd	systemd-resolved
 
 Show detailed metadata for one artifact or PID.
 
+Targets resolve according to section 12.4.
+
 Required output:
 
 - resolved target,
@@ -937,6 +963,8 @@ Required output:
 
 List visible processes in an artifact.
 
+Targets resolve according to section 12.4.
+
 Required output:
 
 - host PID,
@@ -953,6 +981,8 @@ Produce a detailed read-only report.
 Without a target, report all non-host artifacts found by default discovery.
 
 With a target, report only that artifact or PID.
+
+Targets resolve according to section 12.4.
 
 Required content:
 
@@ -977,6 +1007,12 @@ The map should help answer:
 - how the selected grouping mode affects the result.
 
 The output may be textual in v1.0. It does not need to be graphical.
+
+Without a target, `map` uses the same default artifact visibility as `list`.
+With `--include-host`, `map` includes host-classified artifacts before artifact
+ID assignment. With a target, `map` resolves the target according to section
+12.4 and renders relationships for the resolved artifact or PID-derived
+artifact within the visible scan.
 
 ### 13.6 `nsurgn doctor`
 
