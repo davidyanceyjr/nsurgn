@@ -499,7 +499,8 @@ This is a probability-oriented label, not proof.
 
 #### `anomalous`
 
-Has major namespace isolation plus namespace, process, filesystem, permission, or metadata patterns that are unusual, inconsistent, or difficult to explain from visible evidence.
+Has major namespace isolation plus one of the finite v1.0 anomaly triggers
+defined in section 10.3.
 
 This label means the artifact deserves operator attention. It is not a claim that the artifact is malicious.
 
@@ -547,7 +548,7 @@ evidence in section 10.3; score alone must not determine the label.
 | Mountinfo contains Kubernetes projected or serviceaccount mounts | +2 |
 | Executable path is deleted | +2 |
 | Nested PID namespace init without runtime hints | namespace-managed evidence |
-| Contradictory or hard-to-explain isolation evidence | anomalous flag |
+| Matched v1.0 anomaly trigger from section 10.3 | anomalous flag |
 
 ### 10.3 Classification Rules
 
@@ -572,9 +573,39 @@ primary label by this precedence:
 4. `isolated`
 
 Higher-precedence labels do not discard lower-precedence evidence. For example,
-an artifact with container runtime hints and unusual inconsistent metadata is
+an artifact with container runtime hints and a matched anomaly trigger is
 classified as `anomalous`, while the runtime hints remain visible in the
 classification reasons.
+
+For v1.0, `anomalous` is selected only by the finite trigger table below.
+Every trigger requires one or more known major namespace differences. If the
+required namespace IDs or evidence fields are unknown, missing, unreadable, or
+partial, the trigger does not match unless the row explicitly allows that
+metadata state. Unreadable metadata is a scan limitation by default, not
+anomalous evidence.
+
+Process metadata, cgroup paths, command lines, executable names, and runtime
+hints are spoofable. Spoofable evidence may contribute score, hints, and
+classification reasons, but it must not create an anomaly by itself. A v1.0
+anomaly trigger that uses spoofable evidence also requires a namespace or
+filesystem inconsistency from the same artifact.
+
+| Trigger | Required evidence | Reason code | Scope | Example |
+|---|---|---|---|---|
+| Runtime-backed artifact with host root | At least one known major namespace difference, a readable member `root_path` equal to the readable host-profile root target, and at least one cgroup, mountinfo, or runtime hint from section 10.5. | `anomaly_runtime_hint_host_root` | artifact-scoped | A process has a Docker cgroup path and differs in the PID namespace, but `/proc/<pid>/root` resolves to the same target as the host root. |
+| Root filesystem differs without mount namespace difference | At least one known major namespace difference, a readable member `root_path` that differs from the readable host-profile root target, and a known mount namespace ID equal to the host profile mount namespace ID. | `anomaly_root_diff_without_mnt_ns` | process-scoped | A process differs from the host in the user namespace and its root target differs from host root, but its mount namespace is known to be the host mount namespace. |
+| Runtime hint without PID or mount isolation | At least one known major namespace difference, a known PID namespace ID equal to the host profile PID namespace ID, a known mount namespace ID equal to the host profile mount namespace ID, and at least one cgroup, mountinfo, or runtime hint from section 10.5. | `anomaly_runtime_hint_without_pid_mnt_ns` | artifact-scoped | A process differs only in the network namespace while its cgroup path contains `kubepods` and both PID and mount namespaces match the host profile. |
+| Nested PID init with deleted executable | A member process satisfies `nested_pid_init`, the same member process also satisfies `exe_deleted`, and the artifact PID namespace differs from the host profile PID namespace. | `anomaly_nested_pid_init_deleted_exe` | process-scoped | A process is PID 1 inside a nested PID namespace and `/proc/<pid>/exe` reads as `/tmp/worker (deleted)`. |
+
+Important non-matches:
+
+- Unreadable root, executable, cgroup, namespace, or mountinfo metadata does not
+  satisfy a required evidence field. Emit a limitation row when possible.
+- Runtime hints, cgroup paths, process names, command lines, executable
+  basenames, and container-like IDs without one of the namespace or filesystem
+  inconsistencies above must not select `anomalous`.
+- Minor namespace differences alone must not select `anomalous`, even with
+  runtime hints or unreadable metadata.
 
 ```text
 host:
@@ -582,8 +613,8 @@ host:
   profile
 
 anomalous:
-  one or more known major namespace differences plus concerning, inconsistent,
-  incomplete, or hard-to-explain evidence
+  one or more known major namespace differences plus one matched v1.0 anomaly
+  trigger from the table above
 
 container-like:
   one or more known major namespace differences plus strong runtime, platform,

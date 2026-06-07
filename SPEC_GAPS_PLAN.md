@@ -146,6 +146,21 @@ Stop condition:
 - Every anomaly path has deterministic required evidence, and important
   near-misses are clear enough to turn into fixtures.
 
+Resolution summary:
+
+- `SPEC.md` section 10.3 now defines the finite v1.0 anomaly trigger table for
+  `anomalous` classification.
+- Each trigger defines required evidence, stable reason code, artifact/process
+  scope, and an example.
+- The `anomalous` label glossary and scoring table now point to the finite
+  trigger table instead of broad "hard-to-explain" language.
+- Unreadable metadata is specified as a limitation by default and cannot satisfy
+  anomaly evidence requirements unless a future trigger explicitly allows that
+  metadata state.
+- Spoofable process metadata, cgroup paths, command lines, executable names,
+  and runtime hints may contribute reasons, score, and hints, but cannot create
+  an anomaly without a namespace or filesystem inconsistency.
+
 ## Chunk 3: Target Visibility
 
 Objective: define how explicit targets interact with default host hiding.
