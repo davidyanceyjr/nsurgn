@@ -159,6 +159,9 @@ Source areas:
 
 ### 6. JSON And NDJSON Completeness
 
+Status: completed in `SPEC.md` sections 15.4 and 15.5, and `DESIGN.md`
+section 10.
+
 Problem: `DESIGN.md` gives schema examples and common types, but some command
 objects and detail arrays are placeholders or illustrative. Structured output
 acceptance is blocked unless completeness is defined or explicitly deferred.
@@ -173,6 +176,19 @@ Candidate decisions to make:
 - Mark selected objects as illustrative and exclude them from acceptance tests.
 - Define a milestone boundary for raw output first, then structured output.
 
+Resolution:
+
+- Raw, JSON, and NDJSON are strict public contracts for `list`, `inspect`,
+  `ps`, `report`, and `map`.
+- `doctor`, `version`, and `help` structured schemas remain optional for v1.0
+  unless an implementation chooses to emit structured output for them.
+- `DESIGN.md` section 10 now defines required fields for structured common
+  types and command documents, and replaces placeholder NDJSON payload objects
+  with concrete records.
+- Missing scalars use `null`, known no-hint values use `none`, mixed
+  artifact-level namespace values use the string `mixed`, and source-specific
+  read statuses are carried in structured process and limitation objects.
+
 Source areas:
 
 - `DESIGN.md` section 10, JSON and NDJSON output contracts.
@@ -180,6 +196,9 @@ Source areas:
 - `SPEC.md` section 14, output modes.
 
 ### 7. Human `table` And `text` Contracts
+
+Status: completed in `SPEC.md` sections 15.2, 15.3, and 21, and `DESIGN.md`
+sections 8.2, 8.3, 13, and 14.
 
 Problem: human `table` and `text` modes are required, but minimum fields and
 layout constraints are loose. Contract tests need a stable acceptance boundary.
@@ -193,6 +212,16 @@ Candidate decisions to make:
 - Define only minimum fields and leave formatting non-contractual.
 - Treat raw, JSON, and NDJSON as strict contracts while table/text remain
   human-oriented best-effort output.
+
+Resolution:
+
+- `table` and `text` are stable human output modes, not stable parse formats.
+- v1.0 defines minimum required facts by command.
+- Exact spacing, wrapping, width, section order, prose wording, and layout are
+  non-contractual.
+- Scripts and repeatable workflows must use raw, JSON, or NDJSON.
+- Acceptance fixtures validate required facts, stdout/stderr separation, and
+  readability without exact human-layout snapshots.
 
 Source areas:
 

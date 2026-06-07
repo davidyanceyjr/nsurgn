@@ -268,13 +268,25 @@ backslash        -> \\
 
 Human-facing aligned summaries. Opt-in.
 
-Table output may include headers. It should remain readable in typical terminals, but correctness must not depend on terminal width.
+Table output may include headers. It should remain readable in typical
+terminals, but correctness must not depend on terminal width.
+
+Table output is not a parse contract. Renderers may choose column order,
+spacing, padding, wrapping, truncation, and color as long as every required fact
+from `SPEC.md` section 15.2 is present when available and diagnostics stay on
+stderr. Acceptance tests should check required facts and absence of diagnostics
+on stdout, not exact whitespace snapshots.
 
 ### 8.3 `text`
 
 Human-facing labeled reports. Opt-in.
 
 Text output is appropriate for `inspect`, `report`, `map`, `doctor`, `help`, and `version`.
+
+Text output is not a parse contract. Renderers may choose heading text, section
+order, indentation, blank lines, wrapping, and prose wording as long as every
+required fact from `SPEC.md` section 15.3 is labeled clearly enough for a human
+operator. Scripts must use raw, JSON, or NDJSON.
 
 ### 8.4 `json`
 
@@ -588,8 +600,13 @@ Rules:
 - unavailable or unreadable scalar values are `null`;
 - empty collections are `[]`;
 - PIDs, counts, scores, and score deltas are JSON numbers;
-- namespace IDs are JSON strings without the namespace type wrapper, for example `4026531836`;
+- namespace IDs are JSON strings without the namespace type wrapper, for
+  example `4026531836`;
+- an artifact-level namespace value may be the string `mixed` when member
+  processes have multiple known values for that namespace type;
 - command lines and paths are JSON strings with standard JSON escaping;
+- hint fields use `none` only for known no-hint values; they use `null` when
+  the relevant metadata was unavailable or unreadable;
 - diagnostics still go to stderr and must not be interleaved with JSON or NDJSON on stdout.
 
 Known enum values:
@@ -607,10 +624,15 @@ runtime_hint: kubernetes, docker, crio, podman, containerd, lxc, systemd,
               unshare, snapshotter, container-id, none
 severity: warning, error
 record_type: scan_context, artifact, artifact_summary, namespace_difference,
+             namespace_profile, cgroup_path, mount_summary,
              classification_reason, process, relationship, limitation
 ```
 
 ### 10.2 Common Types
+
+The objects below define required v1.0 structured fields. Examples show typical
+values, not all possible enum combinations. Additional fields may be added in
+v1.x according to section 10.1.
 
 `scan_context`:
 
@@ -625,12 +647,17 @@ record_type: scan_context, artifact, artifact_summary, namespace_difference,
 }
 ```
 
+Required fields: `group_mode`, `host_pid`, `include_host`, `process_count`,
+`artifact_count`, and `limitations`. `limitations` contains `scan_limitation`
+objects. Scan-level limitations use `pid: null` when they do not belong to one
+process.
+
 `namespace_profile`:
 
 ```json
 {
   "pid": "4026531836",
-  "mnt": "4026531841",
+  "mnt": "mixed",
   "net": "4026531840",
   "user": "4026531837",
   "uts": "4026531838",
@@ -640,15 +667,24 @@ record_type: scan_context, artifact, artifact_summary, namespace_difference,
 }
 ```
 
+Required fields: `pid`, `mnt`, `net`, `user`, `uts`, `ipc`, `cgroup`, and
+`time`. Each value is a namespace ID string, `mixed`, or `null`.
+
 `namespace_difference`:
 
 ```json
 {
   "namespace_type": "pid",
   "host_id": "4026531836",
-  "target_id": "4026532901"
+  "target_id": "4026532901",
+  "differs": true
 }
 ```
+
+Required fields: `namespace_type`, `host_id`, `target_id`, and `differs`.
+`host_id` and `target_id` use the same value rules as `namespace_profile`.
+`differs` is `true`, `false`, or `null` when either side is missing or mixed in
+a way that prevents a stable equality decision.
 
 `artifact_summary`:
 
@@ -667,6 +703,31 @@ record_type: scan_context, artifact, artifact_summary, namespace_difference,
 }
 ```
 
+Required fields: `artifact_id`, `classification`, `score`, `leader_pid`,
+`leader_ns_pid`, `process_count`, `runtime_hint`, `cgroup_hint`,
+`leader_command`, and `leader_reason`. Missing scalar values are `null`;
+known no-hint values are `none`.
+
+`source_statuses`:
+
+```json
+{
+  "namespace": "ok",
+  "status": "ok",
+  "stat": "ok",
+  "cmdline": "ok",
+  "comm": "ok",
+  "cgroup": "ok",
+  "root": "ok",
+  "exe": "ok"
+}
+```
+
+Required fields: `namespace`, `status`, `stat`, `cmdline`, `comm`, `cgroup`,
+`root`, and `exe`. Values use the `read_status` enum, except `partial` is valid
+only for source readers that define partial-read semantics. For v1.0, the
+required partial-read source is `mountinfo_read_status` in `mount_summary`.
+
 `process_record`:
 
 ```json
@@ -683,9 +744,45 @@ record_type: scan_context, artifact, artifact_summary, namespace_difference,
   "exe_path": "/usr/sbin/nginx",
   "root_path": "/proc/18342/root",
   "root_target": "/",
-  "read_status": "ok"
+  "read_status": "ok",
+  "source_statuses": {
+    "namespace": "ok",
+    "status": "ok",
+    "stat": "ok",
+    "cmdline": "ok",
+    "comm": "ok",
+    "cgroup": "ok",
+    "root": "ok",
+    "exe": "ok"
+  }
 }
 ```
+
+Required fields: `host_pid`, `ns_pid`, `ppid`, `uid`, `user`, `state`,
+`start_time`, `command`, `comm`, `exe_path`, `root_path`, `root_target`,
+`read_status`, and `source_statuses`. `read_status` summarizes process scan
+viability; source-specific failures are represented in `source_statuses` and
+matching `scan_limitation` objects when the failure affects requested output,
+scoring, hints, target resolution, or classification explanation.
+
+`mount_summary`:
+
+```json
+{
+  "root_path": "/proc/18342/root",
+  "root_target": "/",
+  "mountinfo_read_status": "ok",
+  "mount_count": 37,
+  "overlay_or_snapshotter": false,
+  "kubernetes_projected": true
+}
+```
+
+Required fields: `root_path`, `root_target`, `mountinfo_read_status`,
+`mount_count`, `overlay_or_snapshotter`, and `kubernetes_projected`.
+`mountinfo_read_status` is `ok`, `partial`, `permission-denied`, or `vanished`.
+When `mountinfo_read_status` is not `ok`, `mount_count`,
+`overlay_or_snapshotter`, and `kubernetes_projected` are `null`.
 
 `classification_reason`:
 
@@ -697,6 +794,8 @@ record_type: scan_context, artifact, artifact_summary, namespace_difference,
 }
 ```
 
+Required fields: `code`, `score_delta`, and `detail`.
+
 `scan_limitation`:
 
 ```json
@@ -705,9 +804,16 @@ record_type: scan_context, artifact, artifact_summary, namespace_difference,
   "code": "permission_denied",
   "pid": 18342,
   "path": "/proc/18342/root",
+  "source": "root",
+  "read_status": "permission-denied",
   "message": "cannot read target root"
 }
 ```
+
+Required fields: `severity`, `code`, `pid`, `path`, `source`, `read_status`,
+and `message`. `pid`, `path`, `source`, or `read_status` may be `null` for
+limitations that are not tied to one proc source. Source-specific read failures
+that affect public output must identify the source whenever the source is known.
 
 `target_resolution`:
 
@@ -719,6 +825,8 @@ record_type: scan_context, artifact, artifact_summary, namespace_difference,
   "host_pid": 18342
 }
 ```
+
+Required fields: `input`, `input_type`, `artifact_id`, and `host_pid`.
 
 `artifact_detail`:
 
@@ -758,11 +866,41 @@ record_type: scan_context, artifact, artifact_summary, namespace_difference,
   },
   "namespace_differences": [],
   "cgroup_paths": [],
+  "mount": {
+    "root_path": "/proc/18342/root",
+    "root_target": "/",
+    "mountinfo_read_status": "ok",
+    "mount_count": 37,
+    "overlay_or_snapshotter": false,
+    "kubernetes_projected": true
+  },
   "processes": [],
   "classification_reasons": [],
   "limitations": []
 }
 ```
+
+Required fields: `summary`, `namespace_profile`, `host_namespace_profile`,
+`namespace_differences`, `cgroup_paths`, `mount`, `processes`,
+`classification_reasons`, and `limitations`.
+
+`relationship`:
+
+```json
+{
+  "left_artifact_id": "A1",
+  "relationship": "shares-namespace",
+  "namespace_type": "net",
+  "namespace_id": "4026532905",
+  "right_artifact_id": "A2",
+  "detail": "same network namespace"
+}
+```
+
+Required fields: `left_artifact_id`, `relationship`, `namespace_type`,
+`namespace_id`, `right_artifact_id`, and `detail`. `namespace_id` is a known
+namespace ID string. Relationships must not be emitted for missing or `mixed`
+namespace values because no stable shared namespace identity exists.
 
 ### 10.3 JSON Command Documents
 
@@ -784,15 +922,75 @@ record_type: scan_context, artifact, artifact_summary, namespace_difference,
 }
 ```
 
+`scan` is a `scan_context`; `artifacts` contains `artifact_summary` objects.
+
 `nsurgn --format json inspect <artifact-id|pid>`:
 
 ```json
 {
   "schema_version": "nsurgn.output.v1",
   "command": "inspect",
-  "scan": {},
-  "target": {},
-  "artifact": {}
+  "scan": {
+    "group_mode": "profile",
+    "host_pid": 1,
+    "include_host": false,
+    "process_count": 42,
+    "artifact_count": 3,
+    "limitations": []
+  },
+  "target": {
+    "input": "A1",
+    "input_type": "artifact-id",
+    "artifact_id": "A1",
+    "host_pid": 18342
+  },
+  "artifact": {
+    "summary": {
+      "artifact_id": "A1",
+      "classification": "container-like",
+      "score": 13,
+      "leader_pid": 18342,
+      "leader_ns_pid": 1,
+      "process_count": 4,
+      "runtime_hint": "kubernetes",
+      "cgroup_hint": "kubepods",
+      "leader_command": "nginx -g daemon off;",
+      "leader_reason": "nested-pid-init"
+    },
+    "namespace_profile": {
+      "pid": "4026532901",
+      "mnt": "4026532902",
+      "net": "4026532905",
+      "user": "4026531837",
+      "uts": "4026532903",
+      "ipc": "4026532904",
+      "cgroup": "4026532906",
+      "time": null
+    },
+    "host_namespace_profile": {
+      "pid": "4026531836",
+      "mnt": "4026531841",
+      "net": "4026531840",
+      "user": "4026531837",
+      "uts": "4026531838",
+      "ipc": "4026531839",
+      "cgroup": "4026531835",
+      "time": null
+    },
+    "namespace_differences": [],
+    "cgroup_paths": [],
+    "mount": {
+      "root_path": "/proc/18342/root",
+      "root_target": "/",
+      "mountinfo_read_status": "ok",
+      "mount_count": 37,
+      "overlay_or_snapshotter": false,
+      "kubernetes_projected": true
+    },
+    "processes": [],
+    "classification_reasons": [],
+    "limitations": []
+  }
 }
 ```
 
@@ -805,9 +1003,32 @@ is an `artifact_detail`.
 {
   "schema_version": "nsurgn.output.v1",
   "command": "ps",
-  "scan": {},
-  "target": {},
-  "artifact": {},
+  "scan": {
+    "group_mode": "profile",
+    "host_pid": 1,
+    "include_host": false,
+    "process_count": 42,
+    "artifact_count": 3,
+    "limitations": []
+  },
+  "target": {
+    "input": "A1",
+    "input_type": "artifact-id",
+    "artifact_id": "A1",
+    "host_pid": 18342
+  },
+  "artifact": {
+    "artifact_id": "A1",
+    "classification": "container-like",
+    "score": 13,
+    "leader_pid": 18342,
+    "leader_ns_pid": 1,
+    "process_count": 4,
+    "runtime_hint": "kubernetes",
+    "cgroup_hint": "kubepods",
+    "leader_command": "nginx -g daemon off;",
+    "leader_reason": "nested-pid-init"
+  },
   "processes": []
 }
 ```
@@ -821,7 +1042,14 @@ an `artifact_summary`, and `processes` contains `process_record` objects.
 {
   "schema_version": "nsurgn.output.v1",
   "command": "report",
-  "scan": {},
+  "scan": {
+    "group_mode": "profile",
+    "host_pid": 1,
+    "include_host": false,
+    "process_count": 42,
+    "artifact_count": 3,
+    "limitations": []
+  },
   "target": null,
   "artifacts": []
 }
@@ -836,7 +1064,14 @@ object and `artifacts` contains exactly one artifact detail object.
 {
   "schema_version": "nsurgn.output.v1",
   "command": "map",
-  "scan": {},
+  "scan": {
+    "group_mode": "profile",
+    "host_pid": 1,
+    "include_host": false,
+    "process_count": 42,
+    "artifact_count": 3,
+    "limitations": []
+  },
   "target": null,
   "relationships": []
 }
@@ -845,21 +1080,8 @@ object and `artifacts` contains exactly one artifact detail object.
 `scan` is a `scan_context`; `target` is either `null` or a
 `target_resolution`; `relationships` contains `relationship` objects.
 
-`relationship`:
-
-```json
-{
-  "left_artifact_id": "A1",
-  "relationship": "shares-namespace",
-  "namespace_type": "net",
-  "namespace_id": "4026532905",
-  "right_artifact_id": "A2",
-  "detail": "same network namespace"
-}
-```
-
 `doctor`, `version`, and `help` may support JSON, but v1.0 only requires
-stable structured schemas for discovery and inspection commands.
+stable structured schemas for `list`, `inspect`, `ps`, `report`, and `map`.
 
 ### 10.4 NDJSON Record Streams
 
@@ -871,40 +1093,49 @@ command
 record_type
 ```
 
-`list` emits one `artifact` record per listed artifact:
+`list` emits one `artifact` record per listed artifact. `artifact` is an
+`artifact_summary`:
 
-```json
-{"schema_version":"nsurgn.output.v1","command":"list","record_type":"artifact","artifact":{}}
+```jsonl
+{"schema_version":"nsurgn.output.v1","command":"list","record_type":"artifact","artifact":{"artifact_id":"A1","classification":"container-like","score":13,"leader_pid":18342,"leader_ns_pid":1,"process_count":4,"runtime_hint":"kubernetes","cgroup_hint":"kubepods","leader_command":"nginx -g daemon off;","leader_reason":"nested-pid-init"}}
 ```
 
-`ps` emits one `process` record per visible process in the resolved artifact:
+`ps` emits one `process` record per visible process in the resolved artifact.
+`process` is a `process_record`:
 
-```json
-{"schema_version":"nsurgn.output.v1","command":"ps","record_type":"process","artifact_id":"A1","process":{}}
+```jsonl
+{"schema_version":"nsurgn.output.v1","command":"ps","record_type":"process","artifact_id":"A1","process":{"host_pid":18342,"ns_pid":1,"ppid":18301,"uid":101,"user":"nginx","state":"S","start_time":12345678,"command":"nginx -g daemon off;","comm":"nginx","exe_path":"/usr/sbin/nginx","root_path":"/proc/18342/root","root_target":"/","read_status":"ok","source_statuses":{"namespace":"ok","status":"ok","stat":"ok","cmdline":"ok","comm":"ok","cgroup":"ok","root":"ok","exe":"ok"}}}
 ```
 
-`map` emits one `relationship` record per relationship:
+`map` emits one `relationship` record per relationship. `relationship` is the
+common `relationship` object:
 
-```json
-{"schema_version":"nsurgn.output.v1","command":"map","record_type":"relationship","relationship":{}}
+```jsonl
+{"schema_version":"nsurgn.output.v1","command":"map","record_type":"relationship","relationship":{"left_artifact_id":"A1","relationship":"shares-namespace","namespace_type":"net","namespace_id":"4026532905","right_artifact_id":"A2","detail":"same network namespace"}}
 ```
 
-`inspect` and `report` emit detail records in stable section form:
+`inspect` and `report` emit detail records in stable section form. Namespace
+profile records include `profile_scope` set to `artifact` or `host`. Cgroup path
+records contain one `path` string per visible cgroup path:
 
-```json
-{"schema_version":"nsurgn.output.v1","command":"inspect","record_type":"artifact_summary","artifact":{}}
-{"schema_version":"nsurgn.output.v1","command":"inspect","record_type":"namespace_difference","artifact_id":"A1","namespace_difference":{}}
-{"schema_version":"nsurgn.output.v1","command":"inspect","record_type":"classification_reason","artifact_id":"A1","classification_reason":{}}
-{"schema_version":"nsurgn.output.v1","command":"inspect","record_type":"process","artifact_id":"A1","process":{}}
-{"schema_version":"nsurgn.output.v1","command":"inspect","record_type":"limitation","artifact_id":"A1","limitation":{}}
+```jsonl
+{"schema_version":"nsurgn.output.v1","command":"inspect","record_type":"artifact_summary","artifact":{"artifact_id":"A1","classification":"container-like","score":13,"leader_pid":18342,"leader_ns_pid":1,"process_count":4,"runtime_hint":"kubernetes","cgroup_hint":"kubepods","leader_command":"nginx -g daemon off;","leader_reason":"nested-pid-init"}}
+{"schema_version":"nsurgn.output.v1","command":"inspect","record_type":"namespace_profile","artifact_id":"A1","profile_scope":"artifact","namespace_profile":{"pid":"4026532901","mnt":"4026532902","net":"4026532905","user":"4026531837","uts":"4026532903","ipc":"4026532904","cgroup":"4026532906","time":null}}
+{"schema_version":"nsurgn.output.v1","command":"inspect","record_type":"namespace_profile","artifact_id":"A1","profile_scope":"host","namespace_profile":{"pid":"4026531836","mnt":"4026531841","net":"4026531840","user":"4026531837","uts":"4026531838","ipc":"4026531839","cgroup":"4026531835","time":null}}
+{"schema_version":"nsurgn.output.v1","command":"inspect","record_type":"namespace_difference","artifact_id":"A1","namespace_difference":{"namespace_type":"pid","host_id":"4026531836","target_id":"4026532901","differs":true}}
+{"schema_version":"nsurgn.output.v1","command":"inspect","record_type":"cgroup_path","artifact_id":"A1","path":"/kubepods.slice/pod123"}
+{"schema_version":"nsurgn.output.v1","command":"inspect","record_type":"mount_summary","artifact_id":"A1","mount":{"root_path":"/proc/18342/root","root_target":"/","mountinfo_read_status":"ok","mount_count":37,"overlay_or_snapshotter":false,"kubernetes_projected":true}}
+{"schema_version":"nsurgn.output.v1","command":"inspect","record_type":"classification_reason","artifact_id":"A1","classification_reason":{"code":"pid_ns_differs","score_delta":3,"detail":"pid namespace differs from host"}}
+{"schema_version":"nsurgn.output.v1","command":"inspect","record_type":"process","artifact_id":"A1","process":{"host_pid":18342,"ns_pid":1,"ppid":18301,"uid":101,"user":"nginx","state":"S","start_time":12345678,"command":"nginx -g daemon off;","comm":"nginx","exe_path":"/usr/sbin/nginx","root_path":"/proc/18342/root","root_target":"/","read_status":"ok","source_statuses":{"namespace":"ok","status":"ok","stat":"ok","cmdline":"ok","comm":"ok","cgroup":"ok","root":"ok","exe":"ok"}}}
+{"schema_version":"nsurgn.output.v1","command":"inspect","record_type":"limitation","artifact_id":"A1","limitation":{"severity":"warning","code":"permission_denied","pid":18342,"path":"/proc/18342/root","source":"root","read_status":"permission-denied","message":"cannot read target root"}}
 ```
 
 The same record types are used by `report`; `report` repeats records for each
 reported artifact. A `scan_context` record may be emitted first for commands
 where scan metadata is useful:
 
-```json
-{"schema_version":"nsurgn.output.v1","command":"report","record_type":"scan_context","scan":{}}
+```jsonl
+{"schema_version":"nsurgn.output.v1","command":"report","record_type":"scan_context","scan":{"group_mode":"profile","host_pid":1,"include_host":false,"process_count":42,"artifact_count":3,"limitations":[]}}
 ```
 
 ## 11. Command Flow
@@ -1027,11 +1258,16 @@ covers and keep `/proc` input files small enough for focused review.
 | JSON and NDJSON string rendering | Command output containing quotes, backslashes, tabs, newlines, carriage returns, empty readable strings, missing values, ordinary printable command lines, and command-line NUL separators normalized to spaces. | Missing or unreadable metadata for fields that otherwise contain strings; empty readable `cmdline` distinct from missing `cmdline`; multiple NDJSON records with escaped fields. | JSON documents and every NDJSON record parse successfully with tools available in the test environment; escapes follow section 8.4; NDJSON emits one complete JSON object per line. These checks must not add a production runtime dependency on `jq`, Python, or external JSON generators. |
 | Map relationships | Artifacts sharing network namespace; artifacts sharing mount namespace; grouped artifacts sharing cgroup when `--group cgroup` is selected; strict-group artifacts sharing UTS, IPC, cgroup, or time namespace. | Artifacts with no shared major namespaces; duplicate relationship candidates; missing namespace IDs; hidden host-equivalent peer in default broad output; host PID target that resolves to a hidden artifact. | `map` emits only `shares-namespace` rows; no self-relationships or duplicate identity rows are emitted; targeted map includes only rows involving the target artifact; peer visibility follows `SPEC.md` section 12.4. |
 | Raw escaping parity | Raw fields containing tabs, newlines, carriage returns, backslashes, and `/proc/<pid>/cmdline` NUL separators. | Missing values and empty readable values in adjacent fields. | Raw output uses section 8.1 escaping and keeps one record per physical line with literal tab separators between fields. |
+| Human table/text contracts | `list`, `ps`, and `map` table output containing the minimum facts from `SPEC.md` section 15.2; `inspect`, `report`, `map`, `doctor`, `version`, and `help` text output containing the minimum facts from section 15.3. | Narrow terminal width; long command strings; missing optional metadata; warnings or limitations present; no map relationships. | Required facts are present in human output, diagnostics are absent from stdout, missing values remain understandable, no exact whitespace or section-order snapshot is required, and scripts are documented to use raw, JSON, or NDJSON. |
 
 Acceptance tests should validate both output content and parseability. JSON and
 NDJSON parseability checks are test-environment requirements only; renderers
 must still construct valid output using the Bash implementation rules in
 section 8.4.
+
+Human output acceptance checks validate required content and readability only.
+They must not fail solely because spacing, wrapping, column width, section
+order, or wording changed while the required facts remain present.
 
 ## 14. Risks and Follow-Up Design Work
 
@@ -1041,4 +1277,7 @@ Raw escaping must be tested with command lines and paths containing tabs, newlin
 
 The JSON and NDJSON schemas are now defined for discovery and inspection commands. `doctor`, `version`, and `help` can add structured schemas later if needed.
 
-The first implementation milestone should keep `raw` and basic human help/version/doctor stable before adding richer renderers.
+The first implementation milestone should keep `raw` and basic human
+help/version/doctor stable before adding richer renderers. Human renderer
+polish can evolve without breaking v1.0 as long as the required table/text facts
+remain present.

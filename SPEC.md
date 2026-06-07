@@ -1208,7 +1208,28 @@ one-based indexes in the key, such as `process	1.host_pid	18342`.
 
 Table output is opt-in for human-facing summaries.
 
-Table output should be readable and stable enough for operators, but scripts should prefer raw, JSON, or NDJSON output.
+Table output should be readable and stable enough for operators, but scripts
+should prefer raw, JSON, or NDJSON output.
+
+Table output is a stable human output mode, not a stable parse format. v1.0
+requires the facts below to be present when the command can produce them, but
+does not make exact spacing, padding, wrapping, column width, truncation,
+alignment, color, or column order part of the public contract. Diagnostics and
+warnings must still be written to stderr only.
+
+Minimum table facts by command:
+
+| Command | Required table facts |
+|---|---|
+| `list` | Artifact ID, classification, score, leader host PID, leader namespace PID when available, process count, runtime hint, and leader command. |
+| `ps <target>` | Host PID, namespace PID when available, parent PID, user or UID, process state, and command. |
+| `map [<target>]` | Left artifact ID, relationship, namespace type, namespace ID, right artifact ID, and relationship detail. |
+
+`inspect` and `report` may render table sections for process lists, namespace
+comparisons, classification evidence, limitations, and mount summaries. When
+they use table output for these sections, the table facts must be the same facts
+required for the corresponding command content in section 13. They may use text
+sections for non-tabular details.
 
 ### 15.3 Text Output
 
@@ -1216,27 +1237,56 @@ Text output is opt-in for detailed human reports.
 
 Text output should favor explicit labels and short sections.
 
+Text output is a stable human output mode, not a stable parse format. v1.0
+requires required facts to be labeled clearly enough for an operator to read,
+but does not make exact heading text, section order, indentation, blank lines,
+wrapping, color, or prose wording part of the public contract. Scripts and
+repeatable workflows must use raw, JSON, or NDJSON instead.
+
+Minimum text facts by command:
+
+| Command | Required text facts |
+|---|---|
+| `inspect <target>` | The required output facts from section 13.2. |
+| `report [<target>]` | The required content from section 13.4, including scan limitations that affect reported artifacts. |
+| `map [<target>]` | The relationship facts from section 13.5 for each emitted relationship, or a clear no-relationships result when no relationship rows exist. |
+| `doctor` | Each required check from section 13.6 and its result. |
+| `version` | The required output facts from section 13.7. |
+| `help` | The required help content from section 13.8. |
+
+`list` and `ps` may support text output, but their v1.0 human contract is
+satisfied by table output. If they implement text output, it must include the
+same minimum facts as their table form.
+
 ### 15.4 JSON Output
 
-JSON output should expose the same facts as human output using stable field names.
+JSON output exposes discovery and inspection facts using stable field names.
 
-JSON output for discovery and inspection commands must be a single valid JSON
-document with:
+JSON output for `list`, `inspect`, `ps`, `report`, and `map` is a strict v1.0
+public contract. Each command must emit one valid JSON document with:
 
 - `schema_version` set to `nsurgn.output.v1`,
 - `command` set to the executed command name,
 - command-specific objects or arrays for artifacts, processes, reports, or relationships,
 - unavailable scalar values represented as `null`,
 - empty collections represented as `[]`,
+- known no-hint values represented as `none`,
+- mixed artifact-level namespace values represented as the string `mixed`,
 - diagnostics and warnings kept on stderr.
 
-The v1.0 structured schema is defined in `DESIGN.md`. v1.x releases may add
-fields, but must not remove or rename v1.0 fields without changing
-`schema_version`.
+The v1.0 structured schema and required fields are defined in `DESIGN.md`
+section 10. v1.x releases may add fields, but must not remove or rename v1.0
+fields without changing `schema_version`.
+
+`doctor`, `version`, and `help` may support JSON, but v1.0 does not require
+stable JSON schemas for those commands unless an implementation chooses to emit
+structured output for them.
 
 ### 15.5 NDJSON Output
 
-NDJSON output may be used for stream-like artifact or process records.
+NDJSON output is a strict v1.0 public contract for `list`, `ps`, and `map`.
+`inspect` and `report` may use section-oriented NDJSON records for detailed
+output.
 
 Each line must be a complete JSON object.
 
@@ -1246,8 +1296,9 @@ Each NDJSON record must include:
 - `command`,
 - `record_type`.
 
-NDJSON is required for `list`, `ps`, and `map`. `inspect` and `report` may use
-section-oriented records for detailed output.
+Record payloads must use the required common types and missing-value behavior
+defined in `DESIGN.md` section 10. NDJSON must emit one complete object per
+physical line, with diagnostics and warnings kept on stderr.
 
 ---
 
@@ -1558,6 +1609,8 @@ Target:
 - Shows namespace relationships.
 - Provides system diagnostics.
 - Supports raw stream, human, and structured output modes.
+- Keeps raw, JSON, and NDJSON as parseable contracts while treating table and
+  text as human contracts with required facts but non-contractual layout.
 - Handles vanished PIDs gracefully.
 - Provides stable exit codes.
 - Avoids `eval`.
