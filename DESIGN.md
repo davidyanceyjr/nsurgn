@@ -443,8 +443,8 @@ Mount evidence rules:
   splitting `mount_source` and `mount_point` on `/`. Empty components are
   ignored. These rules do not perform substring matching.
 - When a boolean is `true`, classification may emit a matching reason such as
-  `mount-overlay`, `mount-snapshotter`, `mount-kubernetes-projected`, or
-  `mount-serviceaccount`, using the parsed fields above as evidence detail.
+  `mount_overlay_snapshotter` or `mount_kubernetes_projected`, using the parsed
+  fields above as evidence detail.
 
 Unreadable or incomplete mountinfo behavior:
 

@@ -1,77 +1,97 @@
 # Handoff Brief
 
 ## Objective
-Preserve the current understanding of the `nsurgn` repository specification and implementation state so another session can continue from the specification assessment.
+
+Continue v1.0 spec gap resolution after completing `SPEC_GAPS_PLAN.md` Chunk 1:
+Evidence Foundation.
 
 ## Scope And Non-Goals
-Scope: repo-level specification understanding for `nsurgn` v1.0, including `SPEC.md`, `DESIGN.md`, current Bash scaffold, and smoke-test evidence.
 
-Non-goals: no implementation work, no architecture redesign, no readiness verdict, no release or merge status claim.
+Scope:
+
+- `SPEC_GAPS_PLAN.md` Chunk 2: Anomaly Determinism.
+- Source slices: `GAP-1/S1`, `GAP-1/S2`, `GAP-1/S3`.
+- Primary edit target: `SPEC.md` section 10.3.
+
+Non-goals:
+
+- Do not implement production Bash code.
+- Do not add fixtures yet; `GAP-1/S4` belongs to later fixture work.
+- Do not change score weights from `SPEC.md` section 10.2.
 
 ## Current State
-The repo specification is understandable and coherent at the product level. `SPEC.md` defines `nsurgn v1.0` as a read-only Linux Bash CLI for discovering visible process namespace artifacts from `/proc`, grouping them, selecting deterministic leaders, classifying them with evidence-based labels, and emitting stable raw/table/text/JSON/NDJSON output without making runtime identity claims.
 
-`DESIGN.md` translates the specification into implementation boundaries: shared scan engine, target resolver, command views, renderers, and internal TSV workspace records.
+Established source facts:
 
-The current implementation is an M1 scaffold. Implemented behavior includes help, version, doctor, CLI option validation, exit-code constants, TSV escaping, and scan workspace creation. Core v1.0 behavior is not implemented yet: `/proc` discovery, namespace/profile parsing, grouping, leader selection, classification, target resolution, command-specific output, and structured renderers.
-
-The scoring model decision has been recorded in `SPEC.md` and `DESIGN.md`: the v1.0 scoring table is normative for the public `score` field, each numeric signal contributes at most once per artifact, and classification labels still use rule evidence rather than score alone.
-
-The working tree has documentation changes in `SPEC.md`, `DESIGN.md`, and this handoff scratchpad.
+- `SPEC_GAPS_PLAN.md` is the active coordination artifact. `SPEC_GAPS.md` is
+  deprecated but retained as the source gap inventory.
+- Chunk 1 has been applied in `SPEC.md` section 10.5: the spec now has a
+  normative evidence-matching table for v1.0 score and hint signals.
+- `DESIGN.md` mount evidence reason-code examples were aligned to underscore
+  identifiers used by the normative spec table.
+- `SPEC_GAPS_PLAN.md` Chunk 1 now has a resolution summary.
+- `SPEC.md` section 10.3 still defines `anomalous` with broad language and does
+  not yet provide a finite v1.0 trigger table.
 
 ## Established Decisions And Traceability
-Primary source artifacts:
-- `SPEC.md`: product contract and v1.0 acceptance criteria.
-- `DESIGN.md`: implementation-oriented design and output contracts.
-- `AGENTS.md`: context and handoff operating notes.
 
-Established spec decisions:
-- v1.0 is read-only and must not mutate filesystems, control target processes, execute in target namespaces, or depend on runtime APIs.
-- Default host profile source is `/proc/1/ns/*`, overrideable with `--host-pid`.
-- Default grouping mode is `--group profile`, using PID, mount, network, and user namespaces.
-- Host-equivalent artifacts are hidden by default; major namespace differences are PID, mount, network, and user.
-- Runtime and cgroup matches are evidence, not proof.
-- Artifact IDs are ephemeral per invocation.
-- The v1.0 scoring table in `SPEC.md` section 10.2 is normative for public score calculation. Numeric rows contribute to `score` at most once per artifact; non-numeric rows are classification evidence or flags.
-- Exit-code semantics are normative in `SPEC.md` section 16.3.
+Relevant completed Chunk 1 decisions:
 
-Potential spec tightening identified:
-- Define `anomalous` evidence more testably.
-- Decide whether `doctor --format json|ndjson` should produce structured output, TSV fallback, or a usage/deferred behavior.
-- Add milestone-specific acceptance criteria so M2/M3 can proceed without carrying the entire v1.0 contract at once.
+- Cgroup keyword matches are case-sensitive and evaluated within path
+  components after splitting on `/`.
+- Lowercase hex container-like IDs use the component token regex
+  `(^|[^0-9a-f])[0-9a-f]{32,64}([^0-9a-f]|$)`.
+- Deleted executable evidence is based on raw `/proc/<pid>/exe` `readlink`
+  values ending with `" (deleted)"`; display `exe_path` strips the suffix and
+  reason detail preserves it.
+- `unshare` evidence is limited to `comm=unshare`, first command argument
+  basename `unshare`, or executable basename `unshare`.
+
+Relevant next source requirements:
+
+- `GAP-1/S1`: Define a finite v1.0 anomalous trigger table in `SPEC.md`
+  section 10.3.
+- `GAP-1/S2`: State unreadable metadata is a limitation by default, not
+  anomalous evidence, except when combined with a specific v1.0 trigger.
+- `GAP-1/S3`: Add spoofability handling for process metadata, cgroup paths, and
+  runtime hints.
 
 ## Changed Artifacts
-Changed by this handoff:
+
 - `SPEC.md`
 - `DESIGN.md`
+- `SPEC_GAPS_PLAN.md`
 - `.codex/handoffs/current.md`
 
-No production code changes were made during the specification assessment or scoring-model clarification.
-
 ## Checks And Evidence
-Commands run:
-- `git diff --check`
-- `test/smoke.sh`
 
-Result:
-- `git diff --check` passed.
-- Passed with output: `ok - scaffold smoke tests passed`
+Checks performed so far:
 
-Other evidence:
-- `lib/commands.sh` routes `list`, `inspect`, `ps`, `report`, and `map` through `nsurgn_cmd_scaffolded_scan_command`, which currently calls `nsurgn_not_implemented`.
-- `lib/scan.sh` creates the internal scan workspace files but does not yet perform discovery, grouping, leader selection, scoring, or classification.
+- `git diff --check` passed after the initial `SPEC.md` and `DESIGN.md` edit.
+
+Checks still needed after this handoff update:
+
+- Run `git diff --check` again.
+- Run the repository smoke test if still available and relevant.
 
 ## Risks, Blockers, And Open Questions
-Open questions are specification-tightening items listed above. No source-established blocker or owner-issued status was found.
 
-Unsupported claims:
-- Any claim that v1.0 core discovery is implemented is unsupported because the command paths currently return “not implemented”.
-- Any release-readiness or merge-readiness claim is unsupported because no source artifact establishes that status.
+Open Chunk 2 decisions:
+
+- Exact finite anomalous trigger names and required evidence.
+- Reason codes for anomalous triggers.
+- Whether each trigger is artifact-scoped or process-scoped.
+- Which near-miss cases must explicitly remain non-anomalous.
 
 ## Immediate Next Action And Owner
+
 Owner: Unknown
 
-Atomic next action: Define `anomalous` evidence in `SPEC.md` section 10.3 with testable criteria.
+Draft and apply the Chunk 2 `SPEC.md` section 10.3 finite anomalous trigger
+table for `GAP-1/S1`, including trigger names, required evidence, reason codes,
+scope, and examples.
 
 ## Resume Notes
-If continuing implementation, start from the milestone sequence in `SPEC.md` section 19. The likely next engineering milestone is M2, but that is a downstream implementation decision, not established by this handoff.
+
+Use `01-understand` for the anomaly rule clarification. Use `05-test` only when
+the work moves from rule definition to fixture or acceptance-test planning.

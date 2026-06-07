@@ -662,36 +662,96 @@ container-id
 none
 ```
 
-Cgroup hint matching:
+Evidence matching is normative for v1.0. The table below defines the searched
+field, match rule, case sensitivity, emitted classification reason code, score
+delta, and hint effect for every v1.0 scoring and hint signal. A scored reason
+code may contribute to an artifact score at most once per artifact, even when
+multiple member processes match it.
 
-1. `kubepods` in a cgroup path -> `cgroup_hint=kubepods`,
-   `runtime_hint=kubernetes`
-2. `docker` in a cgroup path -> `cgroup_hint=docker`,
-   `runtime_hint=docker`
-3. `crio` or `cri-o` in a cgroup path -> `cgroup_hint=crio`,
-   `runtime_hint=crio`
-4. `libpod` in a cgroup path -> `cgroup_hint=libpod`,
-   `runtime_hint=podman`
-5. `containerd` in a cgroup path -> `cgroup_hint=containerd`,
-   `runtime_hint=containerd`
-6. `lxc` in a cgroup path -> `cgroup_hint=lxc`, `runtime_hint=lxc`
-7. `machine.slice` in a cgroup path -> `cgroup_hint=machine.slice`,
-   `runtime_hint=systemd`
-8. A path component that looks like a 32- to 64-character lowercase hexadecimal
-   container ID -> `cgroup_hint=container-id`,
-   `runtime_hint=container-id`
+For cgroup keyword matching, split each cgroup path on `/` and ignore empty
+components. Keyword matches are case-sensitive matches for the exact byte
+sequence within one path component; they do not join text across path
+separators. Runtime and cgroup keyword matches are case-sensitive lowercase
+unless this spec explicitly names a mixed-case token such as `machine.slice`.
+The container-like ID rule is a
+path-component token rule: after splitting on `/`, a component matches when it
+contains a token matching `(^|[^0-9a-f])[0-9a-f]{32,64}([^0-9a-f]|$)`. The
+matched hex token itself must be lowercase.
 
-When multiple cgroup hints match, use the first match in the order above for
-the hint fields and emit classification reasons for the additional matches.
+For deleted executable detection, read `/proc/<pid>/exe` with `readlink`. The
+signal matches only when the raw `readlink` value ends with the exact suffix
+`" (deleted)"`. Display fields that show `exe_path` should strip that suffix
+and show the executable path; classification reason detail must preserve the raw
+`readlink` value including the suffix.
 
-Runtime hints from non-cgroup evidence:
+For `cmdline` matching, `/proc/<pid>/cmdline` NUL separators are normalized to
+single spaces before applying the rules below. The first command argument is
+the text before the first normalized space.
 
-- Kubernetes projected or serviceaccount mounts set `runtime_hint=kubernetes`
-  when no higher-precedence cgroup-derived runtime hint is present.
-- Overlay or snapshotter mount evidence sets `runtime_hint=snapshotter` when no
-  higher-precedence runtime hint is present.
-- `unshare`-style executable or command metadata sets `runtime_hint=unshare`
-  when no higher-precedence runtime hint is present.
+| Signal | Searched field | Match rule | Case sensitivity | Reason code | Score delta | Hint effect |
+|---|---|---|---|---|---:|---|
+| PID namespace differs from host | artifact namespace profile | Known PID namespace ID differs from the host profile PID namespace ID. | N/A | `pid_ns_differs` | +3 | none |
+| Mount namespace differs from host | artifact namespace profile | Known mount namespace ID differs from the host profile mount namespace ID. | N/A | `mnt_ns_differs` | +3 | none |
+| Network namespace differs from host | artifact namespace profile | Known network namespace ID differs from the host profile network namespace ID. | N/A | `net_ns_differs` | +2 | none |
+| User namespace differs from host | artifact namespace profile | Known user namespace ID differs from the host profile user namespace ID. | N/A | `user_ns_differs` | +2 | none |
+| UTS namespace differs from host | artifact namespace profile | Known UTS namespace ID differs from the host profile UTS namespace ID. | N/A | `uts_ns_differs` | +1 | none |
+| IPC namespace differs from host | artifact namespace profile | Known IPC namespace ID differs from the host profile IPC namespace ID. | N/A | `ipc_ns_differs` | +1 | none |
+| Cgroup namespace differs from host | artifact namespace profile | Known cgroup namespace ID differs from the host profile cgroup namespace ID. | N/A | `cgroup_ns_differs` | +1 | none |
+| Time namespace differs from host | artifact namespace profile | Known time namespace ID differs from the host profile time namespace ID. | N/A | `time_ns_differs` | +1 | none |
+| Process is PID 1 inside nested PID namespace | member process `ns_pid` and PID namespace | A member process has `ns_pid=1` and the artifact PID namespace differs from the host profile PID namespace. | N/A | `nested_pid_init` | +4 | none |
+| Cgroup path contains `kubepods` | member process cgroup path | Any cgroup path component contains the exact byte sequence `kubepods`. | case-sensitive | `cgroup_kubepods` | +4 | `cgroup_hint=kubepods`, `runtime_hint=kubernetes` |
+| Cgroup path contains `containerd` | member process cgroup path | Any cgroup path component contains the exact byte sequence `containerd`. | case-sensitive | `cgroup_containerd` | +4 | `cgroup_hint=containerd`, `runtime_hint=containerd` |
+| Cgroup path contains `docker` | member process cgroup path | Any cgroup path component contains the exact byte sequence `docker`. | case-sensitive | `cgroup_docker` | +4 | `cgroup_hint=docker`, `runtime_hint=docker` |
+| Cgroup path contains `crio` | member process cgroup path | Any cgroup path component contains the exact byte sequence `crio` or `cri-o`. | case-sensitive | `cgroup_crio` | +4 | `cgroup_hint=crio`, `runtime_hint=crio` |
+| Cgroup path contains `libpod` | member process cgroup path | Any cgroup path component contains the exact byte sequence `libpod`. | case-sensitive | `cgroup_libpod` | +4 | `cgroup_hint=libpod`, `runtime_hint=podman` |
+| Cgroup path contains `lxc` | member process cgroup path | Any cgroup path component contains the exact byte sequence `lxc`. | case-sensitive | `cgroup_lxc` | +3 | `cgroup_hint=lxc`, `runtime_hint=lxc` |
+| Cgroup path contains `machine.slice` | member process cgroup path | Any cgroup path component contains the exact byte sequence `machine.slice`. | case-sensitive | `cgroup_machine_slice` | +2 | `cgroup_hint=machine.slice`, `runtime_hint=systemd` |
+| Cgroup path contains long hex container-like ID | member process cgroup path | A cgroup path component contains a lowercase hex token matching `(^|[^0-9a-f])[0-9a-f]{32,64}([^0-9a-f]|$)`. | case-sensitive | `cgroup_container_id` | +2 | `cgroup_hint=container-id`, `runtime_hint=container-id` |
+| Root filesystem differs from host root | member process `root_path` | A readable `/proc/<pid>/root` target differs from the readable host-profile root target. | N/A | `root_fs_differs` | +2 | none |
+| Mountinfo contains overlay or snapshotter hints | member process mountinfo | Any parseable mountinfo row matches the overlay or snapshotter rule below. | case-sensitive | `mount_overlay_snapshotter` | +3 | `runtime_hint=snapshotter` when no higher-precedence runtime hint is present |
+| Mountinfo contains Kubernetes projected or serviceaccount mounts | member process mountinfo | Any parseable mountinfo row matches the Kubernetes projected or serviceaccount rule below. | case-sensitive | `mount_kubernetes_projected` | +2 | `runtime_hint=kubernetes` when no higher-precedence cgroup-derived runtime hint is present |
+| Executable path is deleted | member process `/proc/<pid>/exe` raw `readlink` value | Raw `readlink` value ends with the exact suffix `" (deleted)"`. | case-sensitive | `exe_deleted` | +2 | none |
+| Nested PID namespace init without runtime hints | artifact evidence | `nested_pid_init` matched and no cgroup, mountinfo, or `unshare` runtime hint matched for the artifact. | N/A | `nested_pid_init_without_runtime` | - | namespace-managed evidence |
+| `unshare` command name | member process `comm` | `comm` equals `unshare`. | case-sensitive | `unshare_comm` | - | `runtime_hint=unshare` when no higher-precedence runtime hint is present |
+| `unshare` first command argument | member process `cmdline` | First command argument has basename `unshare`. | case-sensitive | `unshare_cmdline` | - | `runtime_hint=unshare` when no higher-precedence runtime hint is present |
+| `unshare` executable path | member process `exe_path` | Basename of the displayed executable path is `unshare`. | case-sensitive | `unshare_exe_path` | - | `runtime_hint=unshare` when no higher-precedence runtime hint is present |
+
+Cgroup hint precedence is:
+
+1. `kubepods`
+2. `docker`
+3. `crio`
+4. `libpod`
+5. `containerd`
+6. `lxc`
+7. `machine.slice`
+8. `container-id`
+
+When multiple cgroup hints match, use the first match in the precedence order
+above for `cgroup_hint` and its cgroup-derived `runtime_hint`. Emit
+classification reasons for additional matches.
+
+Runtime hint precedence is:
+
+1. The selected cgroup-derived runtime hint, if any.
+2. Kubernetes projected or serviceaccount mount evidence.
+3. Overlay or snapshotter mount evidence.
+4. `unshare`-style executable or command metadata.
+
+For overlay or snapshotter mount evidence, parse `/proc/<pid>/mountinfo` using
+the fields before and after the first literal ` - ` separator. The signal
+matches when any parseable row has `filesystem_type=overlay`,
+`filesystem_type=fuse-overlayfs`, `mount_source=overlay`, or a `mount_source`
+or `mount_point` path component exactly equal to `overlay`, `overlayfs`,
+`snapshots`, or `snapshotter`.
+
+For Kubernetes projected or serviceaccount mount evidence, parse
+`/proc/<pid>/mountinfo` the same way. The signal matches when any parseable row
+has `filesystem_type=tmpfs`, an optional field beginning with `shared:`, and a
+`mount_point` path component exactly equal to `kube-api-access`; or when any
+parseable row has `filesystem_type=tmpfs` or `filesystem_type=projected` and a
+`mount_point` path component exactly equal to `serviceaccount`, `secrets`, or
+`kube-api-access`.
 
 ---
 

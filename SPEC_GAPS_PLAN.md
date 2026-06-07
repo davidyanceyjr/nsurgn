@@ -99,6 +99,22 @@ Stop condition:
 - Every v1.0 score or hint signal referenced by these slices can be matched
   deterministically and can emit a stable reason code.
 
+Resolution summary:
+
+- `SPEC.md` section 10.5 now contains a normative evidence-matching table for
+  v1.0 score and hint signals.
+- The table defines searched fields, match rules, case sensitivity, stable
+  reason codes, score deltas, and hint effects.
+- Cgroup matching is defined as case-sensitive matching within path components;
+  the lowercase hex container ID rule is a path-component token regex.
+- Deleted executable detection is defined from the raw `/proc/<pid>/exe`
+  `readlink` suffix `" (deleted)"`, with display fields stripping the suffix
+  and reason detail preserving it.
+- `unshare`-style evidence is limited to accepted `comm`, first-argument
+  `cmdline`, and executable basename matches.
+- `DESIGN.md` mount evidence reason-code examples now use the same underscore
+  identifier style as the normative spec table.
+
 ## Chunk 2: Anomaly Determinism
 
 Objective: make `anomalous` classification testable.
