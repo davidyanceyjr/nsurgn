@@ -64,6 +64,8 @@ Stop condition:
 
 Objective: convert resolved behavior into fixture and acceptance coverage.
 
+Status: resolved in `DESIGN.md` section 13.
+
 Source slices:
 
 - `GAP-1/S4`
@@ -73,22 +75,24 @@ Source slices:
 - `GAP-6/S4`
 - `GAP-7/S6`
 
-Planned spec/design work:
+Spec/design coverage:
 
-- Add acceptance fixture requirements for every anomalous trigger and near-miss.
-- Add targeted command fixtures for host-equivalent PID, minor-only cgroup
-  grouped artifact, and hidden default artifact.
-- Add exit-code examples for unreadable `root`, `exe`, `mountinfo`, `cmdline`,
-  `status`, and `cgroup`, plus vanished target and vanished non-target member
-  cases.
-- Add JSON/NDJSON fixtures for quotes, backslashes, tabs, newlines, carriage
-  returns, empty strings, missing values, ordinary printable command lines, and
-  command-line NUL separators.
-- Add parseability checks for JSON documents and NDJSON streams using only
-  tools allowed by the test environment.
-- Add map fixtures for shared network namespace, shared mount namespace, no
-  shared major namespaces, hidden host-equivalent relationships, and targeted
-  map output.
+- `DESIGN.md` section 13 defines acceptance fixture requirements for every
+  anomalous trigger and near-miss.
+- It defines targeted command fixtures for host-equivalent PID, minor-only
+  cgroup grouped artifact, and hidden default artifact.
+- It defines exit-code examples for unreadable `root`, `exe`, `mountinfo`,
+  `cmdline`, `status`, and `cgroup`, plus vanished target and vanished
+  non-target member cases.
+- It defines JSON/NDJSON fixtures for quotes, backslashes, tabs, newlines,
+  carriage returns, empty strings, missing values, ordinary printable command
+  lines, and command-line NUL separators.
+- It requires parseability checks for JSON documents and NDJSON streams using
+  tools available in the test environment without adding production runtime
+  dependencies.
+- It defines map fixtures for shared network namespace, shared mount namespace,
+  no shared major namespaces, hidden host-equivalent relationships, and
+  targeted map output.
 
 Dependencies:
 
@@ -106,7 +110,7 @@ Stop condition:
 ## Recommended Work Order
 
 1. Chunk 0: Tracking Cleanup.
-2. Chunk 6: Acceptance Fixture Plan.
+2. Chunk 6: Acceptance Fixture Plan. Resolved in `DESIGN.md` section 13.
 
 ## Review Checklist
 

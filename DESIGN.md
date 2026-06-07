@@ -997,7 +997,34 @@ or flags.
 Tradeoff: adding new public score weights requires a spec update, but scripts
 and operators can compare scores across v1.0 implementations and invocations.
 
-## 13. Risks and Follow-Up Design Work
+## 13. Acceptance Fixture Plan
+
+Acceptance fixtures should exercise the resolved v1.0 behavior from `SPEC.md`
+without turning the fixture set into production implementation. The fixture set
+must include positive cases that trigger the behavior and important near-miss,
+failure, or visibility cases where the spec distinguishes them.
+
+Fixture names may vary, but each fixture should identify the source behavior it
+covers and keep `/proc` input files small enough for focused review.
+
+| Area | Positive fixtures | Near-miss, failure, or visibility fixtures | Expected acceptance checks |
+|---|---|---|---|
+| Anomaly trigger: runtime-backed artifact with host root | Artifact with at least one major namespace difference, readable member `root` equal to host root, and a runtime hint from cgroup, mountinfo, or runtime evidence. | Same runtime hint and host root but no major namespace difference; same major namespace difference and host root but no runtime hint; unreadable `root` with otherwise matching evidence. | Classification is `anomalous` only for the positive fixture and includes `anomaly_runtime_hint_host_root`; near-misses are not `anomalous` and expose limitations for unreadable metadata where applicable. |
+| Anomaly trigger: root differs without mount namespace difference | Process with a major namespace difference outside mount namespace, readable member `root` differing from host root, and mount namespace equal to the host profile. | Differing root with mount namespace also differing; same root with host mount namespace; unreadable `mountinfo` or `root`; minor-only namespace difference. | Classification is `anomalous` only for the positive fixture and includes `anomaly_root_diff_without_mnt_ns`; missing required evidence never satisfies the trigger. |
+| Anomaly trigger: runtime hint without PID or mount isolation | Artifact with a known major namespace difference, PID and mount namespace IDs equal to host profile, and at least one runtime hint. | Runtime hint with no major namespace difference; runtime hint with PID or mount namespace isolation; unreadable PID or mount namespace; minor-only namespace difference. | Classification is `anomalous` only for the positive fixture and includes `anomaly_runtime_hint_without_pid_mnt_ns`; spoofable runtime evidence alone is insufficient. |
+| Anomaly trigger: nested PID init with deleted executable | Member process with nested PID namespace init evidence, executable path ending in `(deleted)`, and artifact PID namespace differing from host profile. | Deleted executable without nested PID init; nested PID init with non-deleted executable; unreadable `exe`; PID namespace equal to host profile. | Classification is `anomalous` only for the positive fixture and includes `anomaly_nested_pid_init_deleted_exe`; unreadable executable metadata is a limitation, not anomaly evidence. |
+| Target visibility | Host PID target resolving to a host-equivalent artifact hidden from default broad output; host PID target resolving to a minor-only cgroup grouped artifact; artifact hidden by default but visible with `--include-host`. | Artifact ID target for a hidden default artifact without `--include-host`; artifact ID target after visibility changes alter ID assignment; nonexistent host PID target. | Host PID targets resolve from the full visible process scan; artifact ID targets resolve only after command visibility filtering; hidden artifact ID targets fail according to `SPEC.md` section 16.3. |
+| Exit-code materiality | Broad command with ordinary unreadable `root`, `exe`, `mountinfo`, `cmdline`, `status`, or `cgroup` represented as limitations while primary output remains coherent. | Targeted command where unreadable metadata prevents target resolution or primary output; targeted command where primary output exists but requested detail is materially incomplete; vanished target process; vanished non-target member during broad scan. | Exit codes follow `SPEC.md` section 16.3: non-material broad limitations stay `0`, material incomplete targeted detail exits `6`, unresolved vanished targets exit `4` or `7` as applicable, and ordinary vanished non-target members in broad scans remain limitations unless coherent primary output cannot be produced. |
+| JSON and NDJSON string rendering | Command output containing quotes, backslashes, tabs, newlines, carriage returns, empty readable strings, missing values, ordinary printable command lines, and command-line NUL separators normalized to spaces. | Missing or unreadable metadata for fields that otherwise contain strings; empty readable `cmdline` distinct from missing `cmdline`; multiple NDJSON records with escaped fields. | JSON documents and every NDJSON record parse successfully with tools available in the test environment; escapes follow section 8.4; NDJSON emits one complete JSON object per line. These checks must not add a production runtime dependency on `jq`, Python, or external JSON generators. |
+| Map relationships | Artifacts sharing network namespace; artifacts sharing mount namespace; grouped artifacts sharing cgroup when `--group cgroup` is selected; strict-group artifacts sharing UTS, IPC, cgroup, or time namespace. | Artifacts with no shared major namespaces; duplicate relationship candidates; missing namespace IDs; hidden host-equivalent peer in default broad output; host PID target that resolves to a hidden artifact. | `map` emits only `shares-namespace` rows; no self-relationships or duplicate identity rows are emitted; targeted map includes only rows involving the target artifact; peer visibility follows `SPEC.md` section 12.4. |
+| Raw escaping parity | Raw fields containing tabs, newlines, carriage returns, backslashes, and `/proc/<pid>/cmdline` NUL separators. | Missing values and empty readable values in adjacent fields. | Raw output uses section 8.1 escaping and keeps one record per physical line with literal tab separators between fields. |
+
+Acceptance tests should validate both output content and parseability. JSON and
+NDJSON parseability checks are test-environment requirements only; renderers
+must still construct valid output using the Bash implementation rules in
+section 8.4.
+
+## 14. Risks and Follow-Up Design Work
 
 JSON and NDJSON rendering in Bash is the highest-risk formatting area. The implementation needs a small, heavily tested JSON string escaper.
 
