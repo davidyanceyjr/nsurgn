@@ -547,6 +547,9 @@ right_artifact_id
 detail
 ```
 
+Relationship generation, visibility, duplicate suppression, and record ordering
+follow `SPEC.md` section 13.5.
+
 ## 10. Structured Output Contracts
 
 Structured output is a public CLI contract. JSON and NDJSON render the same
@@ -948,7 +951,7 @@ if no target, filter host artifacts unless --include-host
 if target is host PID, resolve from full visible process scan
 if target is artifact ID, filter host artifacts unless --include-host
 if target is artifact ID, assign IDs and resolve against assigned IDs
-derive shared namespace relationships
+derive shared namespace relationships using SPEC.md section 13.5
 render relationship records or text summary
 ```
 

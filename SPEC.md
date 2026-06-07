@@ -1014,6 +1014,73 @@ ID assignment. With a target, `map` resolves the target according to section
 12.4 and renders relationships for the resolved artifact or PID-derived
 artifact within the visible scan.
 
+In v1.0, `map` emits only shared namespace relationships. The only v1.0
+relationship enum value is:
+
+```text
+shares-namespace
+```
+
+`map` must not emit contrast rows such as `differs-namespace` in v1.0.
+
+Relationship-generating namespace types are:
+
+```text
+pid
+mnt
+net
+user
+```
+
+When `--group cgroup` is selected, `map` also generates `cgroup`
+relationships. When `--group strict` is selected, `map` also generates
+`uts`, `ipc`, `cgroup`, and `time` relationships. Missing or unreadable
+namespace IDs do not generate relationship rows for that namespace type.
+
+Relationship rows are pairwise artifact rows grouped by namespace type and
+namespace ID. For every generated namespace type, find artifacts with the same
+non-empty namespace ID and emit one row for each unordered pair in that group.
+Do not emit self-relationships.
+
+For each relationship row:
+
+- `left_artifact_id` is the earlier artifact by the artifact sort order from
+  section 12.3,
+- `relationship` is `shares-namespace`,
+- `namespace_type` is the namespace type that matched,
+- `namespace_id` is the shared namespace inode string,
+- `right_artifact_id` is the later artifact by the artifact sort order from
+  section 12.3,
+- `detail` is stable human-readable text describing the shared namespace.
+
+Suppress duplicate relationship rows by this identity:
+
+```text
+left_artifact_id
+relationship
+namespace_type
+namespace_id
+right_artifact_id
+```
+
+Targeted `map` output emits only relationship rows where the resolved target
+artifact participates. A host PID target may resolve to an artifact hidden by
+default output according to section 12.4; in that case the target artifact is
+included for relationship generation, and peer artifacts are the artifacts
+visible to the command's visibility mode. Artifact ID targets resolve only
+against artifacts visible to the current command invocation.
+
+Raw, JSON, and NDJSON `map` relationship records must be emitted in this stable
+order:
+
+1. namespace type order: `pid`, `mnt`, `net`, `user`, `cgroup`, `uts`, `ipc`,
+   `time`,
+2. `namespace_id` bytewise ascending,
+3. `left_artifact_id` by the artifact sort order from section 12.3,
+4. `right_artifact_id` by the artifact sort order from section 12.3,
+5. relationship enum order: `shares-namespace`,
+6. `detail` bytewise ascending.
+
 ### 13.6 `nsurgn doctor`
 
 Report whether the local system can support v1.0 discovery and inspection.
@@ -1260,6 +1327,21 @@ When multiple conditions occur, exit codes use this precedence:
 
 Command-specific requirements:
 
+- Metadata is material only when it is required to produce the command's primary
+  requested output. Missing optional metadata must be represented as `null`, a
+  missing scalar value, a limitation row, or a warning, according to the output
+  contract for that command.
+- Broad scan commands are `list`, untargeted `report`, and untargeted `map`.
+  Ordinary vanished non-target PIDs and unreadable optional metadata in broad
+  scans exit `0` with limitations or warnings unless they prevent coherent
+  artifact summaries from being produced.
+- Targeted commands are `inspect <target>`, `ps <target>`, `report <target>`,
+  and `map <target>`. Missing metadata that prevents target resolution or the
+  target's primary process set from being produced must use the existing
+  precedence for `permission-denied`, `target-not-found`,
+  `artifact-not-found`, or `process-changed`. Missing detailed evidence after
+  the primary target output is produced exits `6` only when the requested result
+  is materially incomplete.
 - `doctor` exits `0` when diagnostics complete, even if warnings are found.
 - `doctor` exits nonzero only when diagnostics cannot run meaningfully: use `8`
   for unsupported platform or missing required Linux feature, `3` for access
@@ -1270,6 +1352,27 @@ Command-specific requirements:
 - In `raw`, `json`, and `ndjson` modes, diagnostics and warnings remain on stderr regardless of exit code.
 - `--quiet` may suppress non-critical warnings, but must not change exit-code selection.
 - `--verbose` may add stderr diagnostics, but must not change exit-code selection.
+
+Metadata materiality by command:
+
+| Command | Required metadata for primary output | Optional metadata that remains `success` with limitations or warnings | Metadata absence that can cause `partial-success` | Metadata absence that can cause `permission-denied` or `process-changed` |
+|---|---|---|---|---|
+| `list` | Visible PID enumeration; readable host namespace profile; enough namespace IDs, host PIDs, and leader-selection facts to build coherent artifact summaries. | `root`, `exe`, `mountinfo`, `cmdline`, `status` fields not needed for leader fallback, and `cgroup` fields not needed by the selected grouping mode. | Only broad scan loss that leaves artifact summaries present but materially incomplete for requested grouping or scoring. | Access denial or PID churn that prevents building coherent artifact summaries. Ordinary vanished non-target PIDs are limitations and exit `0`. |
+| `inspect <target>` | Target resolution; target artifact leader host PID; namespace profile; host namespace comparison; classification and score. | `root` and `exe` when unreadable; `mountinfo`, `cmdline`, `status`, and `cgroup` fields that only affect optional evidence, hints, or display detail. | Missing `root`, `exe`, `mountinfo`, `cmdline`, `status`, or `cgroup` when the target is resolved but requested inspection detail is materially incomplete. | Access denial or target process churn that prevents resolving the target, identifying the leader, building the target namespace profile, or producing the host namespace comparison. |
+| `ps <target>` | Target resolution; target artifact or PID-derived process set; host PID for each emitted process; enough process status or fallback metadata to emit process rows. | `root`, `exe`, `mountinfo`, and `cgroup`; `cmdline` when `comm` or another command fallback is available; `status` fields not required for emitted columns. | Missing `cmdline` or `status` for target member processes when process rows can still be emitted but material requested columns are incomplete. | Access denial or target process churn that prevents resolving the target or producing the target's primary process set. |
+| `report` without target | Same primary artifact-summary requirements as `list`; enough scan context to report all default-visible artifacts. | `root`, `exe`, `mountinfo`, `cmdline`, `status`, and `cgroup` fields that affect only per-artifact detail, hints, mount summaries, or limitations. | Only broad scan loss that leaves report output present but materially incomplete across requested artifacts. | Access denial or PID churn that prevents coherent artifact summaries for the report. Ordinary vanished non-target PIDs are limitations and exit `0`. |
+| `report <target>` | Target resolution; target artifact leader host PID; artifact summary; process table; namespace comparison. | `root` and `exe` when unreadable; `mountinfo`, `cmdline`, `status`, and `cgroup` fields that affect only evidence, hints, mount summaries, or limitations. | Missing `root`, `exe`, `mountinfo`, `cmdline`, `status`, or `cgroup` when the target report is produced but material requested sections are incomplete. | Access denial or target process churn that prevents resolving the target, identifying the leader, producing the process table, or producing the namespace comparison. |
+| `map` without target | Same primary artifact-summary and namespace-profile requirements as `list`; enough namespace IDs to derive relationship rows among visible artifacts. | `root`, `exe`, `mountinfo`, `cmdline`, `status`, and `cgroup` fields not needed by the selected grouping mode or relationship-generating namespace types. | Only broad scan loss that leaves map output present but materially incomplete for requested grouping or relationship generation. | Access denial or PID churn that prevents coherent artifact summaries or relationship generation. Ordinary vanished non-target PIDs are limitations and exit `0`. |
+| `map <target>` | Target resolution; target artifact namespace profile; peer artifact namespace profiles visible to the command; relationship rows involving the target when such rows exist. | `root`, `exe`, `mountinfo`, `cmdline`, `status`, and `cgroup` fields not needed by the selected grouping mode or relationship-generating namespace types. | Missing namespace or grouping metadata for peers when the target is resolved and some map output can be produced, but requested relationships are materially incomplete. | Access denial or target process churn that prevents resolving the target or producing the target namespace profile needed for relationship generation. |
+
+For the metadata named in the matrix:
+
+- `root` means `/proc/<pid>/root`.
+- `exe` means `/proc/<pid>/exe`.
+- `mountinfo` means `/proc/<pid>/mountinfo`.
+- `cmdline` means `/proc/<pid>/cmdline`.
+- `status` means `/proc/<pid>/status`.
+- `cgroup` means `/proc/<pid>/cgroup`.
 
 ---
 

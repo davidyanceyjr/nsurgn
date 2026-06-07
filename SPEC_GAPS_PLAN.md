@@ -60,78 +60,6 @@ Stop condition:
 - Reviewers can identify the active plan and verify that every source gap slice
   is represented here.
 
-## Chunk 4: Map Semantics
-
-Objective: make `nsurgn map` output deterministic.
-
-Source slices:
-
-- `GAP-7/S1`
-- `GAP-7/S2`
-- `GAP-7/S3`
-- `GAP-7/S4`
-- `GAP-7/S5`
-
-Planned spec/design work:
-
-- Define v1.0 relationship enum values.
-- Define namespace types that generate relationship rows.
-- Define relationship shape as pairwise artifact rows grouped by namespace ID.
-- Omit self-relationships.
-- Suppress duplicates using the specified relationship identity fields.
-- Apply the target visibility rules from `SPEC.md` section 12.4 to untargeted,
-  `--include-host`, and targeted map output.
-- Define deterministic ordering for raw, JSON, and NDJSON output.
-
-Dependencies:
-
-- `SPEC.md` section 12.4 target visibility rules.
-
-Optional sub-agent:
-
-- Read-only task: inspect `SPEC.md` section 13.5 and `DESIGN.md` map output
-  contracts, then return only contradictions, missing fields, and ordering
-  requirements.
-
-Stop condition:
-
-- Raw, JSON, and NDJSON map records can be generated in a stable order from a
-  fixed scan result.
-
-## Chunk 5: Exit-Code Materiality
-
-Objective: define when missing metadata affects command exit status.
-
-Source slices:
-
-- `GAP-4/S1`
-- `GAP-4/S2`
-- `GAP-4/S3`
-
-Planned spec/design work:
-
-- Add a command-by-command materiality matrix to `SPEC.md` section 16.3.
-- For each command, define required metadata for primary output.
-- Define optional metadata that becomes warnings or limitation rows.
-- Define metadata absence that can cause `partial-success`.
-- Define metadata absence that can cause `permission-denied` or
-  `process-changed`.
-- Define broad scan behavior for `list` and untargeted `report`.
-- Define targeted behavior for `inspect`, `ps`, `report <target>`, and
-  `map <target>`.
-
-Dependencies:
-
-- `SPEC.md` section 12.4 target visibility rules.
-- Existing command primary-output definitions in `SPEC.md` section 13.
-
-Stop condition:
-
-- For each command, missing `root`, `exe`, `mountinfo`, `cmdline`, `status`,
-  and `cgroup` metadata can be classified as success with limitation,
-  partial-success, permission-denied, process-changed, or target-not-found by
-  rule.
-
 ## Chunk 6: Acceptance Fixture Plan
 
 Objective: convert resolved behavior into fixture and acceptance coverage.
@@ -167,8 +95,8 @@ Dependencies:
 - Chunk 1 evidence rules.
 - Chunk 2 anomaly rules.
 - `SPEC.md` section 12.4 target visibility rules.
-- Chunk 4 map semantics.
-- Chunk 5 exit-code materiality.
+- `SPEC.md` section 13.5 map semantics.
+- `SPEC.md` section 16.3 exit-code materiality.
 
 Stop condition:
 
@@ -178,9 +106,7 @@ Stop condition:
 ## Recommended Work Order
 
 1. Chunk 0: Tracking Cleanup.
-2. Chunk 4: Map Semantics.
-3. Chunk 5: Exit-Code Materiality.
-4. Chunk 6: Acceptance Fixture Plan.
+2. Chunk 6: Acceptance Fixture Plan.
 
 ## Review Checklist
 
