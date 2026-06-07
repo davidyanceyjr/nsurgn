@@ -195,6 +195,12 @@ detail
 
 Reason codes should be stable lower-case identifiers such as `pid_ns_differs`, `runtime_hint_containerd`, or `nested_pid_init`.
 
+`score_delta` is the numeric contribution from this reason, or `-` for
+classification evidence and flags that do not directly affect score. Scored
+reason codes must be emitted at most once per artifact for each v1.0 scoring
+signal. When multiple member processes expose the same scored signal, `detail`
+should contain representative evidence instead of multiplying `score_delta`.
+
 ### 6.5 `scan_warning.tsv`
 
 ```text
@@ -872,6 +878,16 @@ Tradeoff: implementation must manage cleanup and avoid exposing internal files a
 Renderers are the only place that should know about raw escaping, table alignment, JSON escaping, or NDJSON record construction.
 
 Tradeoff: command views need to provide enough normalized data for every renderer.
+
+### 12.6 Keep Public Scores Comparable
+
+`SPEC.md` defines the v1.0 scoring table as normative. The scan engine should
+compute `score` from those numeric signals only, counting each numeric signal at
+most once per artifact, while keeping non-numeric rows as classification reasons
+or flags.
+
+Tradeoff: adding new public score weights requires a spec update, but scripts
+and operators can compare scores across v1.0 implementations and invocations.
 
 ## 13. Risks and Follow-Up Design Work
 

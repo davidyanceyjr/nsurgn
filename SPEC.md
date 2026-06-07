@@ -503,7 +503,25 @@ Has major namespace isolation plus namespace, process, filesystem, permission, o
 
 This label means the artifact deserves operator attention. It is not a claim that the artifact is malicious.
 
-### 10.2 Suggested Scoring Model
+### 10.2 Scoring Model
+
+The scoring table is normative for v1.0. Implementations must compute the
+public `score` field from the numeric point signals in this table so that
+sorting, raw output, JSON, and NDJSON remain comparable across implementations.
+The score is the sum of detected numeric signals for the artifact. Each numeric
+signal may contribute at most once per artifact, even when multiple member
+processes expose the same signal. Process-scoped signals apply when one or more
+member processes exposes the signal; the corresponding classification reason
+should identify representative evidence such as a PID, path, namespace type, or
+matched metadata value.
+
+Rows without numeric points are classification evidence or flags; they do not
+add directly to the score.
+
+Implementations may emit additional classification reasons when visible
+evidence supports them, but v1.0 implementations must not introduce additional
+public score weights without a spec update. Classification still uses the rule
+evidence in section 10.3; score alone must not determine the label.
 
 | Signal | Points |
 |---|---:|
