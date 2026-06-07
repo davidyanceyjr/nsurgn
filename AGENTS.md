@@ -73,6 +73,16 @@ A handoff must be short and actionable. Include only:
 
 Do not include full logs, broad summaries, repeated reasoning, or unrelated repository details.
 
+## Persistent Handoff Scratchpad
+
+When creating a handoff for context clearing, interruption, or session pause, write it to `.codex/handoffs/current.md`.
+
+This file is a resumable working note, not durable project history. It may be overwritten whenever a newer handoff state is created.
+
+When resuming from `.codex/handoffs/current.md`, treat it as a context shortcut only. Verify current truth from the working tree, `git diff`, recent commits, tests, issues, PRs, and any referenced artifacts before acting.
+
+If a durable historical handoff is explicitly needed, write a timestamped file such as `.codex/handoffs/YYYY-MM-DD-topic.md`.
+
 ## Working Rule
 
 Before context becomes crowded, preserve the minimum state needed for another agent or future continuation to resume safely.
