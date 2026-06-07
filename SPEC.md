@@ -820,19 +820,44 @@ error: this command requires Linux procfs
 
 ### 16.3 Exit Codes
 
-Suggested exit codes:
+Exit code semantics are normative for v1.0. Each exit code has one stable
+name and one stable meaning:
 
-```text
-0   success
-1   general error
-2   usage error
-3   permission denied
-4   target not found
-5   artifact not found
-6   partial success
-7   process changed/disappeared
-8   unsupported platform or missing required Linux feature
-```
+| Code | Name | Meaning |
+|---:|---|---|
+| 0 | `success` | The command completed its requested operation. Warnings, non-critical scan limitations, and partial metadata visibility do not change the exit code unless the command's primary requested target or output could not be produced. |
+| 1 | `general-error` | A runtime failure occurred that is not covered by a more specific v1.0 exit code. This is the fallback error code and should be rare in implemented command paths. |
+| 2 | `usage-error` | The invocation contains an invalid command, invalid option, missing required argument, invalid argument format, unsupported `--group` value, unsupported `--format` value, or invalid option/argument combination. |
+| 3 | `permission-denied` | Required metadata for the requested operation or target could not be read because of permissions, procfs restrictions, or equivalent access denial, and the command cannot produce the requested primary result. Non-critical unreadable metadata that is represented as a warning or limitation does not use this code. |
+| 4 | `target-not-found` | A host PID target does not exist or is not visible in the current scan. This applies to numeric PID targets and explicit `pid:<pid>` targets. |
+| 5 | `artifact-not-found` | An artifact ID target does not resolve in the current scan. Artifact IDs are ephemeral and must be resolved only within the command's current scan. |
+| 6 | `partial-success` | The command produced its primary requested output, but material portions of the requested result are incomplete because of scan limitations, vanished processes, or unreadable optional evidence. Use this only when the limitation affects requested target or detail completeness enough that scripts should distinguish it from clean success. |
+| 7 | `process-changed` | A requested target process or material member process disappeared or changed during the command in a way that prevents a coherent result from being produced. Ordinary background PID churn during broad scans should be represented as warnings or limitations, not this code, unless it invalidates the requested result. |
+| 8 | `unsupported-platform` | The command cannot run meaningfully because the platform lacks required Linux procfs behavior, `/proc` is unavailable, required namespace links are unavailable for the current process, or required standard utilities for the command are missing. |
+
+When multiple conditions occur, exit codes use this precedence:
+
+1. `usage-error` wins before scanning or target resolution.
+2. `unsupported-platform` wins when the environment cannot support meaningful execution.
+3. `target-not-found` and `artifact-not-found` win for unresolved explicit targets.
+4. `permission-denied` wins when access denial prevents the requested primary result.
+5. `process-changed` wins when process churn prevents a coherent requested result.
+6. `partial-success` applies when primary output exists but material requested detail is incomplete.
+7. `general-error` is the fallback for errors not covered above.
+8. `success` applies when no higher-precedence condition applies.
+
+Command-specific requirements:
+
+- `doctor` exits `0` when diagnostics complete, even if warnings are found.
+- `doctor` exits nonzero only when diagnostics cannot run meaningfully: use `8`
+  for unsupported platform or missing required Linux feature, `3` for access
+  denial that prevents diagnostics, and `1` for other runtime failures.
+- `help`, `--help`, `version`, and `--version` exit `0` when output is printed successfully.
+- Invalid commands and invalid options always exit `2`.
+- Exit code semantics are independent of output format.
+- In `raw`, `json`, and `ndjson` modes, diagnostics and warnings remain on stderr regardless of exit code.
+- `--quiet` may suppress non-critical warnings, but must not change exit-code selection.
+- `--verbose` may add stderr diagnostics, but must not change exit-code selection.
 
 ---
 
