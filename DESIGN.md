@@ -128,7 +128,7 @@ The workspace must be cleaned up on normal exit and common signals.
 
 ## 6. Internal Record Contracts
 
-Internal records are tab-separated. Missing values use `-`. Fields that may contain tabs, newlines, or carriage returns use the same escaping rules as raw output.
+Internal records are tab-separated. Missing values use `-`. Fields that may contain tabs, newlines, carriage returns, or backslashes use the same escaping rules as raw output.
 
 Hint fields use `none` when all source families relevant to that hint were
 readable, or not applicable, and no known hint was found. They use `-` when a
@@ -278,7 +278,7 @@ super_options
 ```
 
 `line_index` is one-based in procfs read order. The parser uses the first
-literal ` - ` separator and the field rules from `SPEC.md` section 13.2.
+literal ` - ` separator and the local mountinfo parser rules in section 9.3.
 `optional_fields` preserves any pre-separator optional fields as one escaped
 space-separated value, or `-` when no optional fields are present. These records
 preserve only parsed fields; unparseable mountinfo lines are not retained.
@@ -308,9 +308,10 @@ runtime_hint
 `mountinfo_read_status=ok`; otherwise it is `-`.
 
 `overlay_or_snapshotter` and `kubernetes_projected` use `true`, `false`, or `-`
-with the semantics from `SPEC.md` section 13.2. When `mountinfo_read_status` is
-not `ok`, both fields are `-`, and classification must not infer mount-derived
-evidence or runtime hints from partial, unreadable, or vanished mountinfo.
+with the local mount evidence rules in section 9.3 and the hint normalization
+rules from `SPEC.md` section 10.5. When `mountinfo_read_status` is not `ok`,
+both fields are `-`, and classification must not infer mount-derived evidence
+or runtime hints from partial, unreadable, or vanished mountinfo.
 
 `runtime_hint` is the mount-derived runtime hint for this process only. It uses
 `snapshotter`, `kubernetes`, `none`, or `-` according to the standard hint-field

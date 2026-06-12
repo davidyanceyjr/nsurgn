@@ -7,10 +7,14 @@ nsurgn_scan_create_workspace() {
   trap nsurgn_scan_cleanup EXIT HUP INT TERM
 
   : >"${NSURGN_SCAN_DIR}/process.tsv"
+  : >"${NSURGN_SCAN_DIR}/process_cgroup.tsv"
+  : >"${NSURGN_SCAN_DIR}/process_cgroup_summary.tsv"
+  : >"${NSURGN_SCAN_DIR}/process_mountinfo.tsv"
+  : >"${NSURGN_SCAN_DIR}/process_mount_summary.tsv"
   : >"${NSURGN_SCAN_DIR}/artifact.tsv"
   : >"${NSURGN_SCAN_DIR}/artifact_process.tsv"
   : >"${NSURGN_SCAN_DIR}/classification_reason.tsv"
-  : >"${NSURGN_SCAN_DIR}/scan_warning.tsv"
+  : >"${NSURGN_SCAN_DIR}/scan_limitation.tsv"
 }
 
 nsurgn_scan_cleanup() {

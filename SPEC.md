@@ -1226,7 +1226,14 @@ Raw output requirements:
 - no decoration,
 - warnings and diagnostics on stderr only.
 
-Fields containing tabs, newlines, or carriage returns must be escaped or normalized so each output record remains one physical line.
+Fields containing tabs, newlines, carriage returns, or backslashes must be escaped so each output record remains one physical line:
+
+```text
+tab              -> \t
+newline          -> \n
+carriage return  -> \r
+backslash        -> \\
+```
 
 `inspect` raw output must use stable section records:
 
