@@ -1,79 +1,83 @@
 # Handoff Brief
 
 ## Objective
-Continue the `SPEC.md` and `DESIGN.md` review for `nsurgn` v1.0 by resolving
-documentation gaps that interfere with implementation.
+Continue the documentation footprint reduction work for `nsurgn` v1.0 using the plan in `.codex/plans/documentation-footprint-plan.md`.
+
+The goal is to reduce the combined implementation footprint of `SPEC.md` and `DESIGN.md` while preserving enough public contract, internal design detail, and traceability to implement v1. `SPEC.md` does not need to be the single source.
+
+## Scope And Non-Goals
+Scope:
+
+- `SPEC.md` public product and CLI contract.
+- `DESIGN.md` implementation-facing architecture, records, algorithms, command flow, and output contracts.
+- Cross-references and deduplication between the two documents.
+
+Non-goals:
+
+- Production code changes.
+- New technical behavior.
+- Technical correctness validation beyond preserving existing documented contracts.
+- Durable historical documentation beyond this working handoff and plan.
 
 ## Current State
-The working tree was clean before this handoff update. The latest commit seen
-was `bd59a0d Resolve spec gap documentation`.
+A remediation plan has been created at `.codex/plans/documentation-footprint-plan.md`.
 
-`SPEC_GAPS_PLAN.md` is no longer present in the repository; the prior handoff
-claim that it still existed as a historical traceability register is stale.
+Current baseline measured from the working tree:
 
-Review scope completed in this session:
+- `SPEC.md`: 74,239 bytes, 1,860 lines.
+- `DESIGN.md`: 62,813 bytes, 1,580 lines.
+- Combined: 137,052 bytes, 3,440 lines.
 
-- `SPEC.md`
-- `DESIGN.md`
+No edits have been made to `SPEC.md` or `DESIGN.md` yet in this plan session.
 
-The review found implementation-blocking or implementation-affecting gaps in
-the spec/design contracts. No production code, tests, or conformance behavior
-were inspected.
+## Established Decisions And Traceability
+User clarification:
+
+- `SPEC.md` does not need to be the single source.
+- The goal is a documentation footprint that allows implementation.
+
+Plan source of truth:
+
+- `.codex/plans/documentation-footprint-plan.md`
+
+Findings captured in the plan:
+
+- `SPEC.md` section 10.5 is the largest bloat hotspot and should be reduced first.
+- `SPEC.md` section 10.3 repeats classification rules.
+- `SPEC.md` section 16.3 mixes public exit-code contract with command metadata materiality detail.
+- `SPEC.md` sections 12.3 and 12.4 repeat artifact ID and target-resolution prose.
+- `SPEC.md` section 13.5 repeats target visibility rules for `map`.
+- `SPEC.md` sections 22 and 23 are README/design-position material.
+- `DESIGN.md` already owns many implementation contracts and should be deduplicated rather than used as a dumping ground for moved material.
 
 ## Changed Artifacts
-- `.codex/handoffs/current.md`: replaced the stale spec-gap closure handoff with
-  this review handoff.
+- `.codex/plans/documentation-footprint-plan.md`: added working plan for resolving documentation footprint findings.
+- `.codex/handoffs/current.md`: updated to this handoff.
 
 ## Checks And Evidence
-Evidence locations from the review:
+Commands run:
 
-- Cgroup paths are required for grouping, hints, classification, and inspect
-  output, but no internal raw/parsed cgroup-path record exists:
-  `SPEC.md` sections around `--group cgroup`, cgroup evidence matching, and
-  `inspect`; `DESIGN.md` `process.tsv`.
-- Mountinfo-derived evidence and mount summaries are required, but no internal
-  mountinfo or mount-summary workspace contract exists:
-  `SPEC.md` evidence table; `DESIGN.md` scan workspace and inspect mount
-  summary section.
-- Limitation records are inconsistent:
-  `DESIGN.md` `scan_warning.tsv` omits `source` and `read_status`, while
-  structured `scan_limitation` requires them and raw limitation rows specify a
-  smaller shape.
-- Label selection is not deterministic enough for implementation:
-  `SPEC.md` makes `anomalous` finite, but `container-like` and
-  `namespace-managed` rely on non-finite phrases such as strong runtime evidence
-  and host service management while score alone must not determine labels.
-- Missing namespace values in grouping keys are underspecified:
-  the docs define artifact-level missing values but not how missing namespace
-  IDs affect group-key formation for `profile`, `strict`, `pid`, `mnt`, and
-  `net`.
-- Host-PID target command flow does not explicitly assign artifact IDs even
-  though target records include `artifact_id` and host-PID targets may resolve
-  hidden artifacts.
+- `wc -c SPEC.md DESIGN.md`
+- `wc -l SPEC.md DESIGN.md`
+- `git status --short`
+- `sed -n '1,260p' .codex/plans/documentation-footprint-plan.md`
+
+Observed git status before this handoff write:
+
+- `.codex/handoffs/current.md` modified.
+- `.codex/plans/` untracked.
 
 ## Risks, Blockers, And Open Questions
-Blocking gaps:
+Risk: deleting evidence details may remove implementation-critical behavior. The plan directs checking whether equivalent detail already exists in `DESIGN.md` before deletion.
 
-- Define an internal cgroup-path record contract, such as `process_cgroup.tsv`,
-  with enough data for `--group cgroup`, `inspect` cgroup paths, hints, scoring,
-  and limitations.
-- Define internal mountinfo/mount-summary records so classifiers and renderers
-  do not duplicate parsing or infer mount-derived evidence independently.
-- Normalize limitation shape across internal records, raw output, JSON, and
-  NDJSON.
-- Add deterministic predicates for `container-like` and `namespace-managed`.
+Risk: reducing `SPEC.md` could make public conformance ambiguous. The plan preserves externally visible labels, scores, selectors, precedence, error outcomes, and output guarantees in `SPEC.md`.
 
-Open questions:
+Risk: moving content into `DESIGN.md` could preserve the same context bloat. The plan measures combined size and prefers deduplication over relocation.
 
-- How should missing namespace IDs participate in grouping keys?
-- For host-PID targets that resolve hidden artifacts, should output assign an
-  `artifact_id`, and if so, relative to which visibility set and ordering?
+Open question: no exact target size was set by the user. The plan uses "materially smaller than 137,052 bytes" as the working size target and implementability as the primary criterion.
 
 ## Immediate Next Action And Owner
-Owner: Unknown. Edit `DESIGN.md` to add canonical internal record contracts for
-cgroup paths, mount summaries, and limitations.
+Owner: Unknown. Execute Pass 1 from `.codex/plans/documentation-footprint-plan.md` by adding or refining short document ownership notes near the top of `SPEC.md` and `DESIGN.md`.
 
 ## Resume Notes
-After the immediate design-contract edit, revisit `SPEC.md` to make
-`container-like` and `namespace-managed` label selection finite and to define
-missing-namespace grouping behavior.
+Use `06-document` for documentation edits. Start with the plan file, then inspect the current `SPEC.md` and `DESIGN.md` before editing. After each major pass, run the validation checks listed in the plan.
