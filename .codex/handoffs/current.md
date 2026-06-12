@@ -5,53 +5,28 @@ Continue the documentation footprint reduction work for `nsurgn` v1.0 using the 
 
 The goal is to reduce the combined implementation footprint of `SPEC.md` and `DESIGN.md` while preserving enough public contract, internal design detail, and traceability to implement v1. `SPEC.md` does not need to be the single source.
 
-## Scope And Non-Goals
-Scope:
-
-- `SPEC.md` public product and CLI contract.
-- `DESIGN.md` implementation-facing architecture, records, algorithms, command flow, and output contracts.
-- Cross-references and deduplication between the two documents.
-
-Non-goals:
-
-- Production code changes.
-- New technical behavior.
-- Technical correctness validation beyond preserving existing documented contracts.
-- Durable historical documentation beyond this working handoff and plan.
-
 ## Current State
-A remediation plan has been created at `.codex/plans/documentation-footprint-plan.md`.
+Passes 1 through 6 from `.codex/plans/documentation-footprint-plan.md` have been applied.
 
-Current baseline measured from the working tree:
+Current measured footprint:
 
-- `SPEC.md`: 74,239 bytes, 1,860 lines.
-- `DESIGN.md`: 62,813 bytes, 1,580 lines.
+- `SPEC.md`: 62,840 bytes, 1,670 lines.
+- `DESIGN.md`: 62,433 bytes, 1,579 lines.
+- Combined: 125,273 bytes, 3,249 lines.
+
+Baseline from the plan:
+
 - Combined: 137,052 bytes, 3,440 lines.
 
-No edits have been made to `SPEC.md` or `DESIGN.md` yet in this plan session.
+Net reduction so far:
 
-## Established Decisions And Traceability
-User clarification:
-
-- `SPEC.md` does not need to be the single source.
-- The goal is a documentation footprint that allows implementation.
-
-Plan source of truth:
-
-- `.codex/plans/documentation-footprint-plan.md`
-
-Findings captured in the plan:
-
-- `SPEC.md` section 10.5 is the largest bloat hotspot and should be reduced first.
-- `SPEC.md` section 10.3 repeats classification rules.
-- `SPEC.md` section 16.3 mixes public exit-code contract with command metadata materiality detail.
-- `SPEC.md` sections 12.3 and 12.4 repeat artifact ID and target-resolution prose.
-- `SPEC.md` section 13.5 repeats target visibility rules for `map`.
-- `SPEC.md` sections 22 and 23 are README/design-position material.
-- `DESIGN.md` already owns many implementation contracts and should be deduplicated rather than used as a dumping ground for moved material.
+- 11,779 bytes.
+- 191 lines.
 
 ## Changed Artifacts
-- `.codex/plans/documentation-footprint-plan.md`: added working plan for resolving documentation footprint findings.
+- `SPEC.md`: added document ownership note; reduced classification repetition; compressed evidence and hint normalization; deduplicated target resolution and `map` target visibility prose; replaced the exit-code materiality matrix with compact materiality rules; removed standalone `README-Oriented Summary` and `Design Position` tail sections.
+- `DESIGN.md`: added document ownership note; deduplicated repeated target-capable command flow.
+- `.codex/plans/documentation-footprint-plan.md`: existing working plan remains untracked.
 - `.codex/handoffs/current.md`: updated to this handoff.
 
 ## Checks And Evidence
@@ -59,25 +34,24 @@ Commands run:
 
 - `wc -c SPEC.md DESIGN.md`
 - `wc -l SPEC.md DESIGN.md`
-- `git status --short`
-- `sed -n '1,260p' .codex/plans/documentation-footprint-plan.md`
+- `rg -n "^(#{1,6})\\s+" SPEC.md DESIGN.md`
+- `rg -n "evidence|classification|target resolution|materiality|README-Oriented|Design Position" SPEC.md DESIGN.md`
+- `rg -n "README-Oriented|Design Position" SPEC.md DESIGN.md || true`
+- `git diff --stat`
 
-Observed git status before this handoff write:
+Observed results:
 
-- `.codex/handoffs/current.md` modified.
-- `.codex/plans/` untracked.
+- Heading scan completed and section numbering now ends at `SPEC.md` section 21.
+- No `README-Oriented` or `Design Position` headings remain.
+- `git diff --stat`: `.codex/handoffs/current.md`, `DESIGN.md`, and `SPEC.md` changed; total `144 insertions(+), 361 deletions(-)`.
 
 ## Risks, Blockers, And Open Questions
-Risk: deleting evidence details may remove implementation-critical behavior. The plan directs checking whether equivalent detail already exists in `DESIGN.md` before deletion.
+Risk: section 10.5 is now much more compact. It preserves public matching rules and reason codes, but a future implementation pass should verify whether `DESIGN.md` needs a more detailed internal parsing table before coding.
 
-Risk: reducing `SPEC.md` could make public conformance ambiguous. The plan preserves externally visible labels, scores, selectors, precedence, error outcomes, and output guarantees in `SPEC.md`.
-
-Risk: moving content into `DESIGN.md` could preserve the same context bloat. The plan measures combined size and prefers deduplication over relocation.
-
-Open question: no exact target size was set by the user. The plan uses "materially smaller than 137,052 bytes" as the working size target and implementability as the primary criterion.
+Open question: no exact target size was set by the user. The combined docs are materially smaller, but further reduction may still be possible in `DESIGN.md`.
 
 ## Immediate Next Action And Owner
-Owner: Unknown. Execute Pass 1 from `.codex/plans/documentation-footprint-plan.md` by adding or refining short document ownership notes near the top of `SPEC.md` and `DESIGN.md`.
+Owner: Unknown. Review the documentation diff for acceptable information loss before committing or using it as the implementation baseline.
 
 ## Resume Notes
-Use `06-document` for documentation edits. Start with the plan file, then inspect the current `SPEC.md` and `DESIGN.md` before editing. After each major pass, run the validation checks listed in the plan.
+Use `06-document` for further documentation edits. Use `07-review` if the next step is preparing or committing the change set.

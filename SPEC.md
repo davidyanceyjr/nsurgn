@@ -9,6 +9,11 @@ Core dependency posture: Linux procfs and standard Linux utilities
 
 ---
 
+Document scope: this specification defines the public v1.0 product behavior,
+CLI contract, output guarantees, error contract, and acceptance criteria.
+Implementation architecture, internal records, command flow, renderer schemas,
+and fixture planning belong in `DESIGN.md`.
+
 ## 1. Purpose
 
 `nsurgn` is a Linux-native command-line utility for discovering, modeling, classifying, inspecting, and reporting visible Linux namespace artifacts.
@@ -644,7 +649,9 @@ evidence in section 10.3; score alone must not determine the label.
 
 ### 10.3 Classification Rules
 
-Classification uses both score and rule evidence. Score communicates evidence strength; labels communicate the most useful operator-facing category. Score alone must not determine the label.
+Classification uses both score and rule evidence. Score communicates evidence
+strength; labels communicate the most useful operator-facing category. Score
+alone must not determine the label.
 
 Classification must be deterministic for a fixed scan result. The classifier
 uses only namespace IDs and evidence visible in the current scan. Missing or
@@ -746,32 +753,6 @@ For v1.0, `isolated` is selected when the artifact has one or more known major
 namespace differences and no anomalous, container-like, or namespace-managed
 selector matched.
 
-```text
-host:
-  no known PID, mount, network, or user namespace difference from the host
-  profile
-
-anomalous:
-  one or more known major namespace differences plus one matched v1.0 anomaly
-  trigger from the table above
-
-container-like:
-  one or more known major namespace differences plus one container-like
-  selector reason code
-
-namespace-managed:
-  one or more known major namespace differences plus one namespace-managed
-  selector reason code, without anomalous or container-like selector evidence
-
-isolated:
-  one or more known major namespace differences, but insufficient evidence for
-  anomalous, container-like, or namespace-managed
-
-nested PID namespace with ns pid 1:
-  namespace-managed selector evidence unless anomalous or container-like
-  evidence selects a higher-precedence primary label
-```
-
 ### 10.4 Classification Limitation
 
 A process group can look container-like without being a container. A process group can also be a real container while hiding runtime hints. A process group can be intentionally namespace-managed without being runtime-backed. `nsurgn` reports evidence, not certainty.
@@ -781,7 +762,8 @@ A process group can look container-like without being a container. A process gro
 Hints are normalized summaries of visible evidence. They are not runtime
 identity claims. Classification reasons are the detailed evidence records used
 to explain scoring and labels; hints are compact fields intended for list,
-report, JSON, and NDJSON consumers.
+report, JSON, and NDJSON consumers. `DESIGN.md` owns the internal record layout
+that carries these facts.
 
 Hint fields are single-valued:
 
@@ -792,153 +774,59 @@ Hint fields are single-valued:
 
 Canonical missing and no-hint values:
 
-- In raw output and internal TSV records, unavailable or unreadable scalar values
-  use `-`.
-- In JSON and NDJSON output, unavailable or unreadable scalar values use `null`.
+- Raw output and internal TSV records use `-` for unavailable or unreadable
+  scalar values.
+- JSON and NDJSON output use `null` for unavailable or unreadable scalar values.
 - Empty repeated values use no rows in raw output and an empty array in JSON.
-- Hint fields use `none` when relevant source families were readable and no
-  known hint was found.
-- Hint fields use the missing scalar value when relevant metadata was not
-  available to evaluate.
+- Hint fields use `none` only when every relevant source family was readable,
+  or not applicable, and no known hint was found.
+- Hint fields use the missing scalar value when relevant metadata was
+  unavailable and no higher-precedence readable evidence matched.
 
-Hint availability is evaluated by source family before applying the `none`
-value:
+Relevant source families are cgroup for `cgroup_hint` and cgroup-derived
+`runtime_hint`, mountinfo for mount-derived `runtime_hint`, and `cmdline`,
+`comm`, and `exe` for `unshare`-style `runtime_hint`. Source failures that
+affect requested output, scoring, target resolution, or classification
+explanation must also appear as limitations.
 
-- `cgroup_hint` depends on the cgroup source family.
-- Cgroup-derived `runtime_hint` values depend on the cgroup source family.
-- Mount-derived `runtime_hint` values depend on the mountinfo source family.
-- `unshare`-style `runtime_hint` values depend on command metadata
-  (`cmdline`), process name metadata (`comm`), and executable metadata (`exe`).
+Canonical `cgroup_hint` values are `kubepods`, `docker`, `crio`, `libpod`,
+`containerd`, `lxc`, `machine.slice`, `container-id`, and `none`.
 
-For an artifact hint, first select the highest-precedence matched hint from
-readable evidence. If no hint matches, emit `none` only when every source family
-relevant to that hint was readable, or not applicable to that hint type, for the
-member processes that could contribute evidence. If any relevant source family
-was unreadable, vanished, missing, or partial and no higher-precedence readable
-evidence matched, emit the missing scalar value instead of `none` and represent
-the source failure as a limitation when it affects requested output, scoring,
-target resolution, or classification explanation.
+Canonical `runtime_hint` values are `kubernetes`, `docker`, `crio`, `podman`,
+`containerd`, `lxc`, `systemd`, `unshare`, `snapshotter`, `container-id`, and
+`none`.
 
-Canonical `cgroup_hint` values:
+Evidence matching is normative for v1.0. Scored reason codes contribute to an
+artifact score at most once per artifact, even when multiple member processes
+match. Score deltas are defined in section 10.2.
 
-```text
-kubepods
-docker
-crio
-libpod
-containerd
-lxc
-machine.slice
-container-id
-none
-```
+| Evidence | Match rule | Reason code | Hint effect |
+|---|---|---|---|
+| Namespace differs from host | Known artifact namespace ID differs from the host profile for `pid`, `mnt`, `net`, `user`, `uts`, `ipc`, `cgroup`, or `time`. | `<type>_ns_differs` | none |
+| Nested PID namespace init | A member process has `ns_pid=1` and that same member process has a known PID namespace that differs from the host profile PID namespace. | `nested_pid_init` | none |
+| Cgroup runtime keyword | A cgroup path component contains `kubepods`, `containerd`, `docker`, `crio`, `cri-o`, `libpod`, `lxc`, or `machine.slice` with case-sensitive matching. | `cgroup_kubepods`, `cgroup_containerd`, `cgroup_docker`, `cgroup_crio`, `cgroup_libpod`, `cgroup_lxc`, or `cgroup_machine_slice` | matching `cgroup_hint`; matching runtime hint: `kubernetes`, `containerd`, `docker`, `crio`, `podman`, `lxc`, or `systemd` |
+| Cgroup container-like ID | A cgroup path component contains a lowercase hex token matching `(^|[^0-9a-f])[0-9a-f]{32,64}([^0-9a-f]|$)`. | `cgroup_container_id` | `cgroup_hint=container-id`, `runtime_hint=container-id` |
+| Root filesystem differs | A readable member process `root_target` differs from the readable host-profile root target. | `root_fs_differs` | none |
+| Overlay or snapshotter mount | A parseable mountinfo row has `filesystem_type=overlay`, `filesystem_type=fuse-overlayfs`, `mount_source=overlay`, or a `mount_source` or `mount_point` component equal to `overlay`, `overlayfs`, `snapshots`, or `snapshotter`. | `mount_overlay_snapshotter` | `runtime_hint=snapshotter` when no higher-precedence runtime hint is present |
+| Kubernetes projected or serviceaccount mount | A parseable mountinfo row has `filesystem_type=tmpfs`, optional field `shared:*`, and mount point component `kube-api-access`; or has `filesystem_type=tmpfs` or `filesystem_type=projected` and mount point component `serviceaccount`, `secrets`, or `kube-api-access`. | `mount_kubernetes_projected` | `runtime_hint=kubernetes` when no higher-precedence cgroup-derived runtime hint is present |
+| Deleted executable | Raw `/proc/<pid>/exe` `readlink` value ends with the exact suffix `" (deleted)"`. | `exe_deleted` | none |
+| Nested PID init without runtime hints | `nested_pid_init` matched and no cgroup, mountinfo, or `unshare` runtime hint matched for the artifact. | `nested_pid_init_without_runtime` | namespace-managed evidence |
+| `unshare` process metadata | `comm` equals `unshare`, first normalized `cmdline` argument has basename `unshare`, or displayed `exe_path` has basename `unshare`. | `unshare_comm`, `unshare_cmdline`, or `unshare_exe_path` | `runtime_hint=unshare` when no higher-precedence runtime hint is present |
 
-Canonical `runtime_hint` values:
+For cgroup matching, split each path on `/`, ignore empty components, and match
+within one component only. Runtime and cgroup keyword matches are
+case-sensitive lowercase unless this spec explicitly names a mixed-case token
+such as `machine.slice`. For `cmdline`, normalize NUL separators to single
+spaces before matching and treat the text before the first normalized space as
+the first command argument. Display fields that show `exe_path` strip the
+`" (deleted)"` suffix, but classification reason detail preserves the raw
+`readlink` value.
 
-```text
-kubernetes
-docker
-crio
-podman
-containerd
-lxc
-systemd
-unshare
-snapshotter
-container-id
-none
-```
-
-Evidence matching is normative for v1.0. The table below defines the searched
-field, match rule, case sensitivity, emitted classification reason code, score
-delta, and hint effect for every v1.0 scoring and hint signal. A scored reason
-code may contribute to an artifact score at most once per artifact, even when
-multiple member processes match it.
-
-For cgroup keyword matching, split each cgroup path on `/` and ignore empty
-components. Keyword matches are case-sensitive matches for the exact byte
-sequence within one path component; they do not join text across path
-separators. Runtime and cgroup keyword matches are case-sensitive lowercase
-unless this spec explicitly names a mixed-case token such as `machine.slice`.
-The container-like ID rule is a
-path-component token rule: after splitting on `/`, a component matches when it
-contains a token matching `(^|[^0-9a-f])[0-9a-f]{32,64}([^0-9a-f]|$)`. The
-matched hex token itself must be lowercase.
-
-For deleted executable detection, read `/proc/<pid>/exe` with `readlink`. The
-signal matches only when the raw `readlink` value ends with the exact suffix
-`" (deleted)"`. Display fields that show `exe_path` should strip that suffix
-and show the executable path; classification reason detail must preserve the raw
-`readlink` value including the suffix.
-
-For `cmdline` matching, `/proc/<pid>/cmdline` NUL separators are normalized to
-single spaces before applying the rules below. The first command argument is
-the text before the first normalized space.
-
-| Signal | Searched field | Match rule | Case sensitivity | Reason code | Score delta | Hint effect |
-|---|---|---|---|---|---:|---|
-| PID namespace differs from host | artifact namespace profile | Known PID namespace ID differs from the host profile PID namespace ID. | N/A | `pid_ns_differs` | +3 | none |
-| Mount namespace differs from host | artifact namespace profile | Known mount namespace ID differs from the host profile mount namespace ID. | N/A | `mnt_ns_differs` | +3 | none |
-| Network namespace differs from host | artifact namespace profile | Known network namespace ID differs from the host profile network namespace ID. | N/A | `net_ns_differs` | +2 | none |
-| User namespace differs from host | artifact namespace profile | Known user namespace ID differs from the host profile user namespace ID. | N/A | `user_ns_differs` | +2 | none |
-| UTS namespace differs from host | artifact namespace profile | Known UTS namespace ID differs from the host profile UTS namespace ID. | N/A | `uts_ns_differs` | +1 | none |
-| IPC namespace differs from host | artifact namespace profile | Known IPC namespace ID differs from the host profile IPC namespace ID. | N/A | `ipc_ns_differs` | +1 | none |
-| Cgroup namespace differs from host | artifact namespace profile | Known cgroup namespace ID differs from the host profile cgroup namespace ID. | N/A | `cgroup_ns_differs` | +1 | none |
-| Time namespace differs from host | artifact namespace profile | Known time namespace ID differs from the host profile time namespace ID. | N/A | `time_ns_differs` | +1 | none |
-| Process is PID 1 inside nested PID namespace | member process `ns_pid` and PID namespace | A member process has `ns_pid=1` and that same member process has a known PID namespace that differs from the host profile PID namespace. | N/A | `nested_pid_init` | +4 | none |
-| Cgroup path contains `kubepods` | member process cgroup path | Any cgroup path component contains the exact byte sequence `kubepods`. | case-sensitive | `cgroup_kubepods` | +4 | `cgroup_hint=kubepods`, `runtime_hint=kubernetes` |
-| Cgroup path contains `containerd` | member process cgroup path | Any cgroup path component contains the exact byte sequence `containerd`. | case-sensitive | `cgroup_containerd` | +4 | `cgroup_hint=containerd`, `runtime_hint=containerd` |
-| Cgroup path contains `docker` | member process cgroup path | Any cgroup path component contains the exact byte sequence `docker`. | case-sensitive | `cgroup_docker` | +4 | `cgroup_hint=docker`, `runtime_hint=docker` |
-| Cgroup path contains `crio` | member process cgroup path | Any cgroup path component contains the exact byte sequence `crio` or `cri-o`. | case-sensitive | `cgroup_crio` | +4 | `cgroup_hint=crio`, `runtime_hint=crio` |
-| Cgroup path contains `libpod` | member process cgroup path | Any cgroup path component contains the exact byte sequence `libpod`. | case-sensitive | `cgroup_libpod` | +4 | `cgroup_hint=libpod`, `runtime_hint=podman` |
-| Cgroup path contains `lxc` | member process cgroup path | Any cgroup path component contains the exact byte sequence `lxc`. | case-sensitive | `cgroup_lxc` | +3 | `cgroup_hint=lxc`, `runtime_hint=lxc` |
-| Cgroup path contains `machine.slice` | member process cgroup path | Any cgroup path component contains the exact byte sequence `machine.slice`. | case-sensitive | `cgroup_machine_slice` | +2 | `cgroup_hint=machine.slice`, `runtime_hint=systemd` |
-| Cgroup path contains long hex container-like ID | member process cgroup path | A cgroup path component contains a lowercase hex token matching `(^|[^0-9a-f])[0-9a-f]{32,64}([^0-9a-f]|$)`. | case-sensitive | `cgroup_container_id` | +2 | `cgroup_hint=container-id`, `runtime_hint=container-id` |
-| Root filesystem differs from host root | member process `root_target` | A readable `/proc/<pid>/root` target differs from the readable host-profile root target. | N/A | `root_fs_differs` | +2 | none |
-| Mountinfo contains overlay or snapshotter hints | member process mountinfo | Any parseable mountinfo row matches the overlay or snapshotter rule below. | case-sensitive | `mount_overlay_snapshotter` | +3 | `runtime_hint=snapshotter` when no higher-precedence runtime hint is present |
-| Mountinfo contains Kubernetes projected or serviceaccount mounts | member process mountinfo | Any parseable mountinfo row matches the Kubernetes projected or serviceaccount rule below. | case-sensitive | `mount_kubernetes_projected` | +2 | `runtime_hint=kubernetes` when no higher-precedence cgroup-derived runtime hint is present |
-| Executable path is deleted | member process `/proc/<pid>/exe` raw `readlink` value | Raw `readlink` value ends with the exact suffix `" (deleted)"`. | case-sensitive | `exe_deleted` | +2 | none |
-| Nested PID namespace init without runtime hints | artifact evidence | `nested_pid_init` matched and no cgroup, mountinfo, or `unshare` runtime hint matched for the artifact. | N/A | `nested_pid_init_without_runtime` | - | namespace-managed evidence |
-| `unshare` command name | member process `comm` | `comm` equals `unshare`. | case-sensitive | `unshare_comm` | - | `runtime_hint=unshare` when no higher-precedence runtime hint is present |
-| `unshare` first command argument | member process `cmdline` | First command argument has basename `unshare`. | case-sensitive | `unshare_cmdline` | - | `runtime_hint=unshare` when no higher-precedence runtime hint is present |
-| `unshare` executable path | member process `exe_path` | Basename of the displayed executable path is `unshare`. | case-sensitive | `unshare_exe_path` | - | `runtime_hint=unshare` when no higher-precedence runtime hint is present |
-
-Cgroup hint precedence is:
-
-1. `kubepods`
-2. `docker`
-3. `crio`
-4. `libpod`
-5. `containerd`
-6. `lxc`
-7. `machine.slice`
-8. `container-id`
-
-When multiple cgroup hints match, use the first match in the precedence order
-above for `cgroup_hint` and its cgroup-derived `runtime_hint`. Emit
-classification reasons for additional matches.
-
-Runtime hint precedence is:
-
-1. The selected cgroup-derived runtime hint, if any.
-2. Kubernetes projected or serviceaccount mount evidence.
-3. Overlay or snapshotter mount evidence.
-4. `unshare`-style executable or command metadata.
-
-For overlay or snapshotter mount evidence, parse `/proc/<pid>/mountinfo` using
-the fields before and after the first literal ` - ` separator. The signal
-matches when any parseable row has `filesystem_type=overlay`,
-`filesystem_type=fuse-overlayfs`, `mount_source=overlay`, or a `mount_source`
-or `mount_point` path component exactly equal to `overlay`, `overlayfs`,
-`snapshots`, or `snapshotter`.
-
-For Kubernetes projected or serviceaccount mount evidence, parse
-`/proc/<pid>/mountinfo` the same way. The signal matches when any parseable row
-has `filesystem_type=tmpfs`, an optional field beginning with `shared:`, and a
-`mount_point` path component exactly equal to `kube-api-access`; or when any
-parseable row has `filesystem_type=tmpfs` or `filesystem_type=projected` and a
-`mount_point` path component exactly equal to `serviceaccount`, `secrets`, or
-`kube-api-access`.
+Cgroup hint precedence is `kubepods`, `docker`, `crio`, `libpod`,
+`containerd`, `lxc`, `machine.slice`, then `container-id`. The selected
+cgroup-derived runtime hint has highest runtime-hint precedence, followed by
+Kubernetes mount evidence, overlay or snapshotter mount evidence, and
+`unshare`-style executable or command metadata.
 
 ---
 
@@ -1031,13 +919,6 @@ Rules:
 - A numeric value means host PID.
 - `pid:18342` explicitly means host PID.
 
-Artifact ID targets are resolved only against the current command's scan after
-that command has applied its grouping mode, host profile, and visibility
-options. `inspect A1`, `ps A1`, `report A1`, and `map A1` are conveniences for
-operator workflows that run a target command from a fresh `list` observation and
-accept that the ID is resolved against the target command's own current scan;
-they are not durable references to a workload.
-
 Artifact IDs are not persistent across invocations. The only stability promise is
 that identical scan facts, command, grouping mode, host profile, and visibility
 options produce the same artifact IDs within the same `nsurgn` version. Changed
@@ -1070,24 +951,12 @@ Target resolution uses these rules:
   change host PID target lookup because host PID targets already resolve from
   the full visible process scan.
 
-Host PID targets use a targeted output artifact set. The resolved target
-artifact is forcibly included in that set and assigned `A1`, even when it would
-be hidden from default broad output. This target-scoped `A1` is the
-`artifact_id` used in raw, JSON, and NDJSON target records and related artifact,
-process, limitation, and relationship records for that invocation.
-
-For host PID targets, `--include-host` does not change the target artifact ID.
-The same host PID target resolves to the same target-scoped `A1` under otherwise
-identical scan facts, grouping mode, and host profile, whether or not
-`--include-host` is present.
-
-For targeted `map` with a host PID target, the targeted output artifact set
-contains the resolved target artifact as `A1` plus any peer artifacts visible to
-the command's visibility mode that participate in emitted relationships. Peer
-artifact IDs are assigned after the target artifact using the artifact sort from
-section 12.3. Artifact ID targets do not use target-scoped ID assignment; they
-resolve only against IDs assigned after the command's normal visibility
-filtering.
+Host PID targets use a target-scoped artifact set. The resolved target artifact
+is forcibly included and assigned `A1`, even when hidden from default broad
+output. `--include-host` does not change this target artifact ID. Targeted
+`map` adds only visible peer artifacts that participate in emitted
+relationships and assigns peer IDs after `A1` using the artifact sort from
+section 12.3. Artifact ID targets do not use target-scoped ID assignment.
 
 ---
 
@@ -1186,11 +1055,10 @@ The map should help answer:
 
 The output may be textual in v1.0. It does not need to be graphical.
 
-Without a target, `map` uses the same default artifact visibility as `list`.
-With `--include-host`, `map` includes host-classified artifacts before artifact
-ID assignment. With a target, `map` resolves the target according to section
-12.4 and renders relationships for the resolved artifact using the targeted
-output artifact set rules from that section.
+Without a target, `map` uses the same artifact visibility and ID assignment
+rules as `list`. With a target, `map` resolves the target according to section
+12.4 and renders relationships for the resolved artifact using that section's
+target-scoped artifact set rules.
 
 In v1.0, `map` emits only shared namespace relationships. The only v1.0
 relationship enum value is:
@@ -1250,13 +1118,9 @@ right_artifact_id
 ```
 
 Targeted `map` output emits only relationship rows where the resolved target
-artifact participates. A host PID target may resolve to an artifact hidden by
-default output according to section 12.4; in that case the target artifact is
-included for relationship generation, and peer artifacts are the artifacts
-visible to the command's visibility mode. Host PID targeted `map` assigns `A1`
-to the target artifact and assigns peer artifact IDs after it as defined in
-section 12.4. Artifact ID targets resolve only against artifacts visible to the
-current command invocation.
+artifact participates. Target visibility, hidden host PID targets, target-scoped
+`A1`, peer visibility, and artifact ID target behavior are defined in section
+12.4.
 
 Raw, JSON, and NDJSON `map` relationship records must be emitted in this stable
 order:
@@ -1575,16 +1439,16 @@ Command-specific requirements:
   on root comparison; otherwise it is represented as a limitation or warning and
   does not change a successful primary result.
 - Broad scan commands are `list`, untargeted `report`, and untargeted `map`.
-  Ordinary vanished non-target PIDs and unreadable optional metadata in broad
-  scans exit `0` with limitations or warnings unless they prevent coherent
-  artifact summaries from being produced.
+  Ordinary vanished non-target PIDs and unreadable optional metadata exit `0`
+  with limitations or warnings unless they prevent coherent artifact summaries
+  or relationships from being produced.
 - Targeted commands are `inspect <target>`, `ps <target>`, `report <target>`,
-  and `map <target>`. Missing metadata that prevents target resolution or the
-  target's primary process set from being produced must use the existing
-  precedence for `permission-denied`, `target-not-found`,
-  `artifact-not-found`, or `process-changed`. Missing detailed evidence after
-  the primary target output is produced exits `6` only when the requested result
-  is materially incomplete.
+  and `map <target>`. Metadata required for target resolution, the target
+  artifact namespace profile, the target process set, or the primary command
+  view is material. Failure before the primary result uses `permission-denied`,
+  `target-not-found`, `artifact-not-found`, or `process-changed` by precedence.
+  Failure after the primary result is available uses `partial-success` only when
+  requested target detail is materially incomplete.
 - `doctor` exits `0` when diagnostics complete, even if warnings are found.
 - `doctor` exits nonzero only when diagnostics cannot run meaningfully: use `8`
   for unsupported platform or missing required Linux feature, `3` for access
@@ -1596,19 +1460,24 @@ Command-specific requirements:
 - `--quiet` may suppress non-critical warnings, but must not change exit-code selection.
 - `--verbose` may add stderr diagnostics, but must not change exit-code selection.
 
-Metadata materiality by command:
+Primary command materiality:
 
-| Command | Required metadata for primary output | Optional metadata that remains `success` with limitations or warnings | Metadata absence that can cause `partial-success` | Metadata absence that can cause `permission-denied` or `process-changed` |
-|---|---|---|---|---|
-| `list` | Visible PID enumeration; readable host namespace profile; enough namespace IDs, host PIDs, and leader-selection facts to build coherent artifact summaries. | `root`, `exe`, `mountinfo`, `cmdline`, `status` fields not needed for leader fallback, and `cgroup` fields not needed by the selected grouping mode. | Only broad scan loss that leaves artifact summaries present but materially incomplete for requested grouping or scoring. | Access denial or PID churn that prevents building coherent artifact summaries. Ordinary vanished non-target PIDs are limitations and exit `0`. |
-| `inspect <target>` | Target resolution; target artifact leader host PID; namespace profile; host namespace comparison; classification and score. | `root` and `exe` when unreadable; `mountinfo`, `cmdline`, `status`, and `cgroup` fields that only affect optional evidence, hints, or display detail. | Missing `root`, `exe`, `mountinfo`, `cmdline`, `status`, or `cgroup` when the target is resolved but requested inspection detail is materially incomplete. | Access denial or target process churn that prevents resolving the target, identifying the leader, building the target namespace profile, or producing the host namespace comparison. |
-| `ps <target>` | Target resolution; target artifact or PID-derived process set; host PID for each emitted process; enough process status or fallback metadata to emit process rows. | `root`, `exe`, `mountinfo`, and `cgroup`; `cmdline` when `comm` or another command fallback is available; `status` fields not required for emitted columns. | Missing `cmdline` or `status` for target member processes when process rows can still be emitted but material requested columns are incomplete. | Access denial or target process churn that prevents resolving the target or producing the target's primary process set. |
-| `report` without target | Same primary artifact-summary requirements as `list`; enough scan context to report all default-visible artifacts. | `root`, `exe`, `mountinfo`, `cmdline`, `status`, and `cgroup` fields that affect only per-artifact detail, hints, mount summaries, or limitations. | Only broad scan loss that leaves report output present but materially incomplete across requested artifacts. | Access denial or PID churn that prevents coherent artifact summaries for the report. Ordinary vanished non-target PIDs are limitations and exit `0`. |
-| `report <target>` | Target resolution; target artifact leader host PID; artifact summary; process table; namespace comparison. | `root` and `exe` when unreadable; `mountinfo`, `cmdline`, `status`, and `cgroup` fields that affect only evidence, hints, mount summaries, or limitations. | Missing `root`, `exe`, `mountinfo`, `cmdline`, `status`, or `cgroup` when the target report is produced but material requested sections are incomplete. | Access denial or target process churn that prevents resolving the target, identifying the leader, producing the process table, or producing the namespace comparison. |
-| `map` without target | Same primary artifact-summary and namespace-profile requirements as `list`; enough namespace IDs to derive relationship rows among visible artifacts. | `root`, `exe`, `mountinfo`, `cmdline`, `status`, and `cgroup` fields not needed by the selected grouping mode or relationship-generating namespace types. | Only broad scan loss that leaves map output present but materially incomplete for requested grouping or relationship generation. | Access denial or PID churn that prevents coherent artifact summaries or relationship generation. Ordinary vanished non-target PIDs are limitations and exit `0`. |
-| `map <target>` | Target resolution; target artifact namespace profile; peer artifact namespace profiles visible to the command; relationship rows involving the target when such rows exist. | `root`, `exe`, `mountinfo`, `cmdline`, `status`, and `cgroup` fields not needed by the selected grouping mode or relationship-generating namespace types. | Missing namespace or grouping metadata for peers when the target is resolved and some map output can be produced, but requested relationships are materially incomplete. | Access denial or target process churn that prevents resolving the target or producing the target namespace profile needed for relationship generation. |
+| Command shape | Primary output requires |
+|---|---|
+| Broad artifact summaries: `list`, untargeted `report`, untargeted `map` | Visible PID enumeration, readable host namespace profile, and enough namespace IDs, host PIDs, grouping facts, and leader-selection facts to build coherent visible artifact summaries. `map` additionally requires enough relationship-generating namespace IDs to derive requested relationships. |
+| `inspect <target>` | Target resolution, target artifact leader host PID, namespace profile, host namespace comparison, classification, and score. |
+| `ps <target>` | Target resolution, target artifact or PID-derived process set, host PID for each emitted process, and enough process status or fallback metadata to emit process rows. |
+| `report <target>` | Target resolution, target artifact leader host PID, artifact summary, process table, and namespace comparison. |
+| `map <target>` | Target resolution, target artifact namespace profile, visible peer artifact namespace profiles, and relationship rows involving the target when such rows exist. |
 
-For the metadata named in the matrix:
+Metadata such as `root`, `exe`, `mountinfo`, `cmdline`, `status`, and `cgroup`
+is optional when it affects only display detail, hints, mount summaries, or
+classification explanation after the primary command view can still be
+produced. It becomes material when the selected grouping mode, target
+resolution, target process set, namespace comparison, relationship generation,
+or requested target detail depends on it.
+
+Metadata names:
 
 - `root` means `/proc/<pid>/root`.
 - `root_path` means the `/proc/<pid>/root` symlink path.
@@ -1799,62 +1668,3 @@ Target:
 - Treats process metadata as untrusted text.
 - Passes ShellCheck where reasonably possible, or documents justified exceptions.
 - Has automated tests covering normal and failure paths.
-
----
-
-## 22. README-Oriented Summary
-
-```text
-Discovery:
-  nsurgn list
-
-Inspection:
-  nsurgn inspect <artifact-id|pid>
-  nsurgn ps <artifact-id|pid>
-  nsurgn report [<artifact-id|pid>]
-  nsurgn map [<artifact-id|pid>]
-
-Environment diagnostics:
-  nsurgn doctor
-
-Utility:
-  nsurgn version
-  nsurgn help
-```
-
----
-
-## 23. Design Position
-
-Correct framing:
-
-```text
-This artifact shares namespaces and metadata commonly associated with containerized workloads.
-```
-
-Incorrect framing:
-
-```text
-This is definitely a Docker container.
-```
-
-Correct framing:
-
-```text
-root_path is /proc/18342/root
-```
-
-When showing root comparison evidence, the resolved target should be labeled
-separately, for example:
-
-```text
-root_target is /
-```
-
-Incorrect framing:
-
-```text
-entered the container filesystem
-```
-
-The value of `nsurgn v1.0` is making the Linux substrate visible, inspectable, and explainable when higher-level runtime tooling is missing, broken, restricted, or untrusted.

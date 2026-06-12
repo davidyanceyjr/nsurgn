@@ -1,6 +1,10 @@
 # nsurgn v1.0 Architecture and Interface Design
 
 This document translates `SPEC.md` into an implementation-oriented design for the v1.0 Bash CLI.
+It owns implementation architecture, scan workspace records, command flow,
+structured output schemas, renderer contracts, and fixture planning. Public CLI
+behavior, externally visible labels, exit codes, and acceptance criteria remain
+defined in `SPEC.md`.
 
 ## 1. Design Goals
 
@@ -1426,6 +1430,17 @@ where scan metadata is useful:
 
 ## 11. Command Flow
 
+Target-capable commands share this resolution flow:
+
+```text
+parse target
+scan visible processes
+if target is host PID, resolve from full visible process scan
+if target is host PID, assign the resolved target artifact target-scoped ID A1
+if target is artifact ID, filter host artifacts unless --include-host
+if target is artifact ID, assign IDs and resolve against assigned IDs
+```
+
 ### 11.1 `list`
 
 ```text
@@ -1439,24 +1454,14 @@ render artifact summaries
 ### 11.2 `inspect`
 
 ```text
-parse target
-scan visible processes
-if target is host PID, resolve from full visible process scan
-if target is host PID, assign the resolved target artifact target-scoped ID A1
-if target is artifact ID, filter host artifacts unless --include-host
-if target is artifact ID, assign IDs and resolve against assigned IDs
+apply shared target-capable flow
 render target metadata, namespace comparison, leader reason, and evidence
 ```
 
 ### 11.3 `ps`
 
 ```text
-parse target
-scan visible processes
-if target is host PID, resolve from full visible process scan
-if target is host PID, assign the resolved target artifact target-scoped ID A1
-if target is artifact ID, filter host artifacts unless --include-host
-if target is artifact ID, assign IDs and resolve against assigned IDs
+apply shared target-capable flow
 render process records for the resolved artifact
 ```
 
@@ -1465,10 +1470,7 @@ render process records for the resolved artifact
 ```text
 scan visible processes
 if no target, filter host artifacts unless --include-host
-if target is host PID, resolve from full visible process scan
-if target is host PID, assign the resolved target artifact target-scoped ID A1
-if target is artifact ID, filter host artifacts unless --include-host
-if target is artifact ID, assign IDs and resolve against assigned IDs
+if target is present, apply shared target-capable flow
 render detailed artifact report and scan limitations
 ```
 
@@ -1477,11 +1479,8 @@ render detailed artifact report and scan limitations
 ```text
 scan visible processes
 if no target, filter host artifacts unless --include-host
-if target is host PID, resolve from full visible process scan
-if target is host PID, assign the resolved target artifact target-scoped ID A1
+if target is present, apply shared target-capable flow
 if target is host PID, assign visible relationship peers after A1 by artifact sort
-if target is artifact ID, filter host artifacts unless --include-host
-if target is artifact ID, assign IDs and resolve against assigned IDs
 derive shared namespace relationships using SPEC.md section 13.5
 render relationship records or text summary
 ```
