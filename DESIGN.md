@@ -278,7 +278,7 @@ super_options
 ```
 
 `line_index` is one-based in procfs read order. The parser uses the first
-literal ` - ` separator and the local mountinfo parser rules in section 9.3.
+literal ` - ` separator and the Mountinfo parser rules under section 9.3.
 `optional_fields` preserves any pre-separator optional fields as one escaped
 space-separated value, or `-` when no optional fields are present. These records
 preserve only parsed fields; unparseable mountinfo lines are not retained.
@@ -308,7 +308,7 @@ runtime_hint
 `mountinfo_read_status=ok`; otherwise it is `-`.
 
 `overlay_or_snapshotter` and `kubernetes_projected` use `true`, `false`, or `-`
-with the local mount evidence rules in section 9.3 and the hint normalization
+with the Mount evidence rules under section 9.3 and the hint normalization
 rules from `SPEC.md` section 10.5. When `mountinfo_read_status` is not `ok`,
 both fields are `-`, and classification must not infer mount-derived evidence
 or runtime hints from partial, unreadable, or vanished mountinfo.

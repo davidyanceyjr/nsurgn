@@ -1,73 +1,91 @@
 # Handoff Brief
 
 ## Objective
-Tighten three pre-implementation issues in `nsurgn` v1.0 docs/scaffold before starting the next implementation milestone.
+Resume implementation planning/execution for `nsurgn` M1/M2 using `PLAN` as the next-session scope.
 
 ## Scope And Non-Goals
-Scope is limited to the three points identified during the `SPEC.md` readiness review:
+Scope is limited to the implementation slices documented in `PLAN`:
 
-- Normalize the raw escaping contract between `SPEC.md` and `DESIGN.md`.
-- Fix inaccurate mountinfo/mount-evidence cross-references in `DESIGN.md`.
-- Align the scan workspace scaffold with the file names and files listed in `DESIGN.md`.
+- M1: help, version, doctor, and test harness.
+- M2: PID validation and namespace reading.
 
-Non-goal: do not begin M2 implementation work until these three tightening items are handled.
+Non-goals for the next session:
+
+- Do not implement artifact grouping before M3.
+- Do not implement artifact IDs, leader selection, scoring, classification, or real `list` output before M3.
+- Do not broaden JSON/NDJSON renderer work beyond M1/M2 needs.
+- Do not add cgroup grouping, mountinfo evidence, root comparison, or runtime hints in M2 except as missing future fields.
 
 ## Current State
-`SPEC.md` was reviewed for v1 implementation readiness. The conclusion from the prior session was that implementation can start, but the three tightening items above should be addressed first.
+Source facts from the current session:
 
-Relevant source facts:
+- `SPEC.md` defines the v1.0 product behavior, milestones, CLI contract, output guarantees, error contract, and acceptance criteria.
+- `DESIGN.md` defines the Bash implementation architecture, internal TSV workspace records, command flow, renderer contracts, structured output schemas, and fixture planning.
+- `PLAN` now exists and is the intended next-session scope for M1/M2 implementation.
+- Current scaffold includes `bin/nsurgn`, `lib/cli.sh`, `lib/commands.sh`, `lib/doctor.sh`, `lib/errors.sh`, `lib/scan.sh`, `lib/util.sh`, and `test/smoke.sh`.
+- The scaffold already has CLI parsing, help/version/doctor dispatch, scan workspace setup, and not-implemented scan commands.
+- `lib/scan.sh` already creates the intended internal TSV workspace files, including `process.tsv`, `artifact.tsv`, `artifact_process.tsv`, `classification_reason.tsv`, and `scan_limitation.tsv`.
 
-- `SPEC.md` defines the public v1.0 contract, including output modes, exit codes, classification, grouping, target resolution, milestones, and acceptance criteria.
-- `DESIGN.md` defines internal scan records, renderer contracts, structured schemas, command flow, and fixture planning.
-- Current scaffold is Bash-based and includes `bin/nsurgn`, `lib/*.sh`, and `test/smoke.sh`.
-- Current scan scaffold creates `scan_warning.tsv`; `DESIGN.md` expects `scan_limitation.tsv`.
-- Existing smoke test currently expects `list` to return exit `1` because scan commands are scaffolded/not implemented.
+Worktree state observed before this handoff:
+
+- `.codex/handoffs/current.md` modified by this handoff update.
+- `PLAN` is new and untracked.
+- `DESIGN.md`, `lib/commands.sh`, `lib/util.sh`, and `test/smoke.sh` were already modified in the worktree; those changes were not inspected or changed as part of this handoff update.
 
 ## Established Decisions And Traceability
-Implementation should start after the tightening pass at `SPEC.md` milestone M2: PID validation and namespace reading.
+Traceability:
 
-The tightening plan from the prior session:
+- Use `SPEC.md` section 19 for milestone boundaries.
+- Use `SPEC.md` sections 13.6-13.8 and 16.3 for M1 behavior.
+- Use `SPEC.md` sections 6.2, 6.3, 7, 8, 9, and 16.3 for M2 scan semantics.
+- Use `DESIGN.md` sections 2-6 and 11 for module boundaries, workspace files, and command flow.
+- Use `PLAN` as the immediate implementation slice document.
 
-1. Update `SPEC.md` raw escaping to include backslash escaping, matching `DESIGN.md` section 8.1.
-2. Fix inaccurate `DESIGN.md` references around mountinfo/mount evidence. Use correct references for mount evidence/classification, command output requirements, and local detailed mount parser/summary behavior.
-3. Update scan workspace scaffold from `scan_warning.tsv` to `scan_limitation.tsv` and create the full intended internal TSV set from `DESIGN.md`.
+Established boundary:
+
+- M2 should stop before grouping. M3 should begin with group key construction, artifact-level namespace aggregation, deterministic leader selection, scoring/classification minimum, and first real `nsurgn list` raw output.
 
 ## Changed Artifacts
-No files were changed after the readiness review except this handoff file.
+Changed in this session:
 
-Existing repository files to inspect next:
+- `PLAN`: added M1/M2 implementation plan.
+- `.codex/handoffs/current.md`: replaced with this handoff brief.
 
-- `SPEC.md`
+Existing modified files not changed by this handoff update:
+
 - `DESIGN.md`
-- `lib/scan.sh`
+- `lib/commands.sh`
+- `lib/util.sh`
 - `test/smoke.sh`
 
 ## Checks And Evidence
-Prior session inspected:
+Read during this session:
 
+- `PLAN`
 - `SPEC.md`
 - `DESIGN.md`
-- `bin/nsurgn`
-- `lib/cli.sh`
-- `lib/commands.sh`
-- `lib/doctor.sh`
-- `lib/errors.sh`
-- `lib/scan.sh`
-- `lib/util.sh`
-- `test/smoke.sh`
-- `git status --short --branch`
+- `.codex/skills/06-document/SKILL.md`
+- `.codex/skills/12-handoff/SKILL.md`
 
-Observed branch state at that time: `main...origin/main` with no local diff shown by `git diff -- SPEC.md DESIGN.md lib/scan.sh lib/util.sh lib/cli.sh lib/commands.sh lib/errors.sh lib/doctor.sh test/smoke.sh bin/nsurgn`.
+Commands/evidence:
 
-Re-verify current truth before editing because the working tree may have changed.
+- `git status --short` showed existing modified files plus new `PLAN`.
+- No tests were run after creating `PLAN`.
+- No production code was changed by this handoff request.
 
 ## Risks, Blockers, And Open Questions
-Open question: the exact replacement cross-reference wording in `DESIGN.md` should be verified against current line numbers/section headings before editing.
+Open questions carried in `PLAN`:
 
-Risk: changing workspace files before implementation may require adjusting future tests. Keep the change narrow and update smoke/unit expectations only if they directly inspect the workspace.
+- Should M2 helper functions be split immediately or kept in `lib/scan.sh` until extraction is justified?
+- Should ShellCheck be required in the test harness or only run opportunistically when installed?
+- What is the cleanest test-only way to inspect the scan workspace without creating public debug output?
+
+Known risk:
+
+- M2 can expand quickly if cgroup, mountinfo, root, exe, renderer, grouping, or classification work is pulled in early. Keep M2 focused on PID enumeration, host profile reading, namespace reading, minimal process metadata, and internal limitations.
 
 ## Immediate Next Action And Owner
-Owner: Unknown. Re-open `SPEC.md`, `DESIGN.md`, and `lib/scan.sh` to verify the three tightening targets against the current working tree.
+Owner: Unknown. Implement the first M1 slice from `PLAN`: CLI contract hardening for help/version/doctor/global-option usage behavior.
 
 ## Resume Notes
-Use `06-document` for the doc edits and `04-build` only if modifying scaffold code in `lib/scan.sh` or tests. Preserve existing user work; do not reset or revert unrelated changes.
+Before editing, re-check `git status --short` and inspect the existing modified files so user or prior-session changes are preserved. Use `PLAN` as the scope guard for next work.

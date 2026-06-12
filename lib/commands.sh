@@ -16,7 +16,26 @@ nsurgn_dispatch() {
   esac
 }
 
+nsurgn_expect_arg_count() {
+  local command_name="$1"
+  local min_count="$2"
+  local max_count="$3"
+  local actual_count="${#NSURGN_ARGS[@]}"
+
+  if [ "$actual_count" -lt "$min_count" ]; then
+    nsurgn_usage_error "${command_name} requires an argument"
+    return "$?"
+  fi
+
+  if [ "$actual_count" -gt "$max_count" ]; then
+    nsurgn_usage_error "${command_name} accepts at most ${max_count} argument(s)"
+    return "$?"
+  fi
+}
+
 nsurgn_cmd_help() {
+  nsurgn_expect_arg_count help 0 0 || return "$?"
+
   cat <<'EOF'
 nsurgn - namespace surgeon
 
@@ -54,19 +73,25 @@ EOF
 }
 
 nsurgn_cmd_version() {
+  nsurgn_expect_arg_count version 0 0 || return "$?"
+
   printf 'nsurgn %s\n' "$(nsurgn_version)"
 }
 
 nsurgn_cmd_doctor() {
-  if [ "${#NSURGN_ARGS[@]}" -ne 0 ]; then
-    nsurgn_usage_error 'doctor does not accept arguments'
-    return "$?"
-  fi
+  nsurgn_expect_arg_count doctor 0 0 || return "$?"
+
   nsurgn_doctor
 }
 
 nsurgn_cmd_scaffolded_scan_command() {
   local command_name="$1"
+
+  case "$command_name" in
+    list) nsurgn_expect_arg_count "$command_name" 0 0 || return "$?" ;;
+    inspect|ps) nsurgn_expect_arg_count "$command_name" 1 1 || return "$?" ;;
+    report|map) nsurgn_expect_arg_count "$command_name" 0 1 || return "$?" ;;
+  esac
 
   nsurgn_scan_run || return "$?"
   nsurgn_not_implemented "$command_name"
