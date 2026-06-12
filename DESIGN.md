@@ -108,10 +108,14 @@ Suggested files:
 
 ```text
 process.tsv
+process_cgroup.tsv
+process_cgroup_summary.tsv
+process_mountinfo.tsv
+process_mount_summary.tsv
 artifact.tsv
 artifact_process.tsv
 classification_reason.tsv
-scan_warning.tsv
+scan_limitation.tsv
 ```
 
 The workspace is internal and not a public interface. It still should use stable, documented field order so tests can inspect it directly.
@@ -189,7 +193,131 @@ When one of these source-specific failures affects requested output, scoring,
 hints, target resolution, or classification explanation, emit a matching
 limitation row.
 
-### 6.2 `artifact.tsv`
+### 6.2 `process_cgroup.tsv`
+
+One row is emitted for each parseable, non-blank `/proc/<pid>/cgroup` line.
+Processes with missing, unreadable, vanished, empty, or unparseable cgroup input
+have no `process_cgroup.tsv` rows; their source status remains in
+`process.tsv`.
+
+```text
+host_pid
+line_index
+cgroup_version
+hierarchy_id
+controllers
+normalized_controllers
+path
+contributes_to_group_key
+```
+
+`line_index` is one-based in procfs read order. `cgroup_version` is `v2` for the
+unified line whose hierarchy ID is `0` and controllers field is empty; otherwise
+it is `v1`. `controllers` preserves the procfs controllers field exactly.
+`normalized_controllers` is the comma-joined, bytewise-sorted controller list for
+v1 rows and `-` for v2 rows. `path` preserves the cgroup path text after the
+empty-path-as-`/` rule from `SPEC.md` section 9.6.
+
+`contributes_to_group_key` is `true` for the row or rows used to build the
+`--group cgroup` key for that process and `false` for other parsed rows. When a
+v2 row is present, only the first v2 row contributes. Otherwise, all parsed v1
+rows contribute after controller/path normalization and sorting.
+
+This file is the source of truth for cgroup path evidence used by cgroup hints,
+cgroup-derived runtime hints, scoring, classification reasons, inspect/report
+`cgroup path` rows, JSON `cgroup_paths`, and NDJSON `cgroup_path` records.
+
+### 6.3 `process_cgroup_summary.tsv`
+
+One row is emitted for every process that has a viable `process.tsv` row.
+
+```text
+host_pid
+cgroup_read_status
+cgroup_group_key
+cgroup_hint
+runtime_hint
+path_count
+```
+
+`cgroup_read_status` mirrors `process.tsv`. `cgroup_group_key` is the exact
+per-process key from `SPEC.md` section 9.6, including `cgroup:unknown` when the
+source is missing, unreadable, empty after blank lines, vanished, or contains no
+parseable line. `cgroup_hint` and `runtime_hint` are the highest-precedence hints
+derived from cgroup paths only, using `none` and `-` with the standard hint-field
+rules. `path_count` is the number of `process_cgroup.tsv` rows for the process.
+
+The grouping engine uses `cgroup_group_key` for `--group cgroup`. The
+classification engine may combine the cgroup-derived `runtime_hint` with
+higher-precedence or lower-precedence hint families as defined by `SPEC.md`.
+
+### 6.4 `process_mountinfo.tsv`
+
+One row is emitted for each parseable `/proc/<pid>/mountinfo` line. Processes
+with permission-denied, vanished, empty, fully unparseable, or partial input with
+no parseable rows have no `process_mountinfo.tsv` rows; their read status remains
+in `process_mount_summary.tsv`.
+
+```text
+host_pid
+line_index
+mount_id
+parent_id
+major_minor
+root
+mount_point
+mount_options
+optional_fields
+filesystem_type
+mount_source
+super_options
+```
+
+`line_index` is one-based in procfs read order. The parser uses the first
+literal ` - ` separator and the field rules from `SPEC.md` section 13.2.
+`optional_fields` preserves any pre-separator optional fields as one escaped
+space-separated value, or `-` when no optional fields are present. These records
+preserve only parsed fields; unparseable mountinfo lines are not retained.
+
+This file is the source of truth for mount-derived evidence, including overlay
+or snapshotter hints, Kubernetes projected or serviceaccount hints, related
+classification reasons, and mount-derived runtime hints.
+
+### 6.5 `process_mount_summary.tsv`
+
+One row is emitted for every process that has a viable `process.tsv` row.
+
+```text
+host_pid
+root_path
+root_target
+mountinfo_read_status
+mount_count
+overlay_or_snapshotter
+kubernetes_projected
+runtime_hint
+```
+
+`root_path` and `root_target` mirror `process.tsv` for the same host PID.
+`mountinfo_read_status` is `ok`, `partial`, `permission-denied`, or `vanished`.
+`mount_count` is the count of parseable `process_mountinfo.tsv` rows only when
+`mountinfo_read_status=ok`; otherwise it is `-`.
+
+`overlay_or_snapshotter` and `kubernetes_projected` use `true`, `false`, or `-`
+with the semantics from `SPEC.md` section 13.2. When `mountinfo_read_status` is
+not `ok`, both fields are `-`, and classification must not infer mount-derived
+evidence or runtime hints from partial, unreadable, or vanished mountinfo.
+
+`runtime_hint` is the mount-derived runtime hint for this process only. It uses
+`snapshotter`, `kubernetes`, `none`, or `-` according to the standard hint-field
+rules and the precedence rules in `SPEC.md` section 10.5.
+
+Renderers select the appropriate process summary for public mount output: target
+commands use the resolved target or leader process defined by the command
+contract, and broad artifact output uses the artifact leader unless a command
+section explicitly says otherwise.
+
+### 6.6 `artifact.tsv`
 
 ```text
 artifact_id
@@ -223,7 +351,7 @@ section 9. Each field is a namespace ID string, `mixed`, or `-`. A field is
 namespace type. Member-level namespace values remain in `process.tsv` and are
 used for process-scoped evidence and detailed inspection.
 
-### 6.3 `artifact_process.tsv`
+### 6.7 `artifact_process.tsv`
 
 ```text
 artifact_id
@@ -233,7 +361,7 @@ role
 
 `role` is `leader` or `member`.
 
-### 6.4 `classification_reason.tsv`
+### 6.8 `classification_reason.tsv`
 
 ```text
 artifact_id
@@ -250,17 +378,47 @@ reason codes must be emitted at most once per artifact for each v1.0 scoring
 signal. When multiple member processes expose the same scored signal, `detail`
 should contain representative evidence instead of multiplying `score_delta`.
 
-### 6.5 `scan_warning.tsv`
+### 6.9 `scan_limitation.tsv`
 
 ```text
 severity
 code
 pid
 path
+source
+read_status
 message
 ```
 
-Warnings are rendered to stderr unless `--quiet` suppresses non-critical warnings.
+One row is emitted for each scan limitation that affects requested output,
+scoring, hints, target resolution, classification explanation, or user-visible
+diagnostics.
+
+`severity` is `warning` or `error`. `warning` is used for limitations where the
+command can still produce the requested primary result. `error` is used for
+limitations that prevent the requested primary result or directly explain a
+nonzero exit code.
+
+`code` is a stable lower-case identifier such as `permission_denied`,
+`process_vanished`, `partial_read`, `missing_namespace`, or
+`host_root_unavailable`.
+
+`pid` is the host PID associated with the limitation, or `-` when the limitation
+is scan-level rather than process-scoped. `path` is the procfs or filesystem
+path associated with the limitation, or `-` when there is no single path.
+`source` identifies the source family associated with source-specific read
+failures, such as `namespace`, `status`, `stat`, `cmdline`, `comm`, `cgroup`,
+`root`, `exe`, `mountinfo`, or `host-root`; it is `-` when no single source
+family applies. `read_status` is `permission-denied`, `vanished`, or `partial`
+for source-specific read failures and `-` when the limitation is not tied to a
+source read status. `message` is the human-readable explanation.
+
+All raw `limitation` rows, JSON `scan_limitation` objects, NDJSON
+`limitation` records, and stderr warning diagnostics are projections from this
+file. Stderr warnings are rendered from rows with `severity=warning` unless
+`--quiet` suppresses non-critical warnings. Fatal errors and usage errors may be
+emitted directly on stderr before a scan workspace exists, but scan-derived
+diagnostics must use `scan_limitation.tsv`.
 
 ## 7. Stdout and Stderr Contract
 
@@ -568,8 +726,17 @@ Required limitation rows for each limitation:
 ```text
 limitation	<index>.severity	warning|error
 limitation	<index>.code	<limitation-code>
+limitation	<index>.pid	<host-pid-or-missing>
+limitation	<index>.path	<path-or-missing>
+limitation	<index>.source	<source-family-or-missing>
+limitation	<index>.read_status	<read-status-or-missing>
 limitation	<index>.message	<escaped-message>
 ```
+
+These rows are rendered from `scan_limitation.tsv`. Missing `pid`, `path`,
+`source`, and `read_status` values use `-`. Source-specific read failures that
+affect requested output must include the same source family and read status used
+by the corresponding process, mount summary, or host-profile source field.
 
 ### 9.4 `report [<artifact-id|pid>]`
 
