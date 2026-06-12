@@ -395,6 +395,43 @@ inspection detail, limitations, and process-scoped classification evidence.
 Artifact-scoped comparisons, sorting, target resolution detail, output
 summaries, and `map` relationships use the artifact-level namespace profile.
 
+For namespace-based grouping modes, each visible PID receives one deterministic
+group key. For every namespace type included in the selected grouping mode:
+
+- If the process has a known namespace ID, the key component is that namespace
+  ID.
+- If the process namespace ID is missing because the namespace link is absent,
+  unreadable, vanished during the scan, unsupported by the kernel, or otherwise
+  unknown, the key component is a process-distinct unknown token:
+
+  ```text
+  unknown:<host-pid>
+  ```
+
+The process-distinct unknown token is internal to group-key construction. It is
+not a namespace ID and must not be rendered as an artifact namespace value. The
+public artifact-level namespace value remains missing when no member process in
+that artifact has a known value for that namespace type.
+
+This rule means missing grouped namespace IDs do not coalesce across processes,
+and a process with a missing grouped namespace ID cannot group with a process
+whose corresponding namespace ID is known. When only ungrouped namespace IDs are
+missing, they do not affect group identity.
+
+If two processes have the same known grouped namespace IDs but either process is
+missing one or more grouped namespace IDs, they are grouped separately unless
+they are the same host PID. This avoids inferring shared namespace membership
+from absence of evidence.
+
+Missing grouped namespace IDs should emit `scan_limitation.tsv` rows when the
+source failure is known and the selected command depends on grouping, sorting,
+target resolution detail, map relationships, or namespace explanation. These
+limitations do not by themselves change the exit code when the command can still
+produce coherent primary output by using process-distinct unknown group keys.
+They can contribute to `partial-success`, `permission-denied`, or
+`process-changed` only under the command-specific materiality rules in section
+16.3.
+
 ### 9.1 `--group profile`
 
 Default.
@@ -541,9 +578,10 @@ Major namespace types:
 
 #### `namespace-managed`
 
-Appears intentionally isolated by Linux namespace tooling or host service management, without strong container runtime or platform backing evidence.
+Appears intentionally isolated by Linux namespace tooling or host service
+management, without a higher-precedence anomaly or container-like selector.
 
-This label may be supported by evidence such as a nested PID namespace init process, `systemd` cgroup context, `unshare`-style process metadata, private mount namespaces, or other host-managed namespace patterns.
+This label is selected only by the finite predicates in section 10.3.
 
 #### `container-like`
 
@@ -668,6 +706,46 @@ Important non-matches:
 - Minor namespace differences alone must not select `anomalous`, even with
   runtime hints or unreadable metadata.
 
+For v1.0, `container-like` is selected when all of the following are true:
+
+1. The artifact has one or more known major namespace differences.
+2. No v1.0 anomaly trigger matched.
+3. At least one of these reason codes matched for the artifact:
+   `cgroup_kubepods`, `cgroup_containerd`, `cgroup_docker`, `cgroup_crio`,
+   `cgroup_libpod`, `cgroup_lxc`, `cgroup_container_id`,
+   `mount_overlay_snapshotter`, or `mount_kubernetes_projected`.
+
+These reason codes are the complete v1.0 container-like selector set. They
+represent visible runtime, platform, cgroup, container-ID, overlay,
+snapshotter, or Kubernetes-style evidence. `cgroup_machine_slice` is not
+container-like evidence by itself; it is namespace-managed evidence because it
+indicates systemd host service management rather than a container runtime or
+platform. If a `machine.slice` artifact also matches one of the container-like
+selector reason codes above, the primary label is `container-like` by
+precedence and `cgroup_machine_slice` remains a classification reason.
+
+For v1.0, `namespace-managed` is selected when all of the following are true:
+
+1. The artifact has one or more known major namespace differences.
+2. No v1.0 anomaly trigger matched.
+3. No container-like selector reason code matched.
+4. At least one of these reason codes matched for the artifact:
+   `nested_pid_init`, `nested_pid_init_without_runtime`,
+   `cgroup_machine_slice`, `unshare_comm`, `unshare_cmdline`, or
+   `unshare_exe_path`.
+
+These reason codes are the complete v1.0 namespace-managed selector set. They
+represent a nested PID namespace init process, systemd-managed cgroup context,
+or visible `unshare`-style process metadata. A private mount namespace,
+different root filesystem, minor namespace difference, command name other than
+the exact `unshare` rules in section 10.5, or unreadable metadata does not
+select `namespace-managed` unless one of the selector reason codes above also
+matched.
+
+For v1.0, `isolated` is selected when the artifact has one or more known major
+namespace differences and no anomalous, container-like, or namespace-managed
+selector matched.
+
 ```text
 host:
   no known PID, mount, network, or user namespace difference from the host
@@ -678,21 +756,20 @@ anomalous:
   trigger from the table above
 
 container-like:
-  one or more known major namespace differences plus strong runtime, platform,
-  cgroup, filesystem, overlay, snapshotter, or Kubernetes-style evidence
+  one or more known major namespace differences plus one container-like
+  selector reason code
 
 namespace-managed:
-  one or more known major namespace differences plus evidence of deliberate
-  Linux namespace tooling or host service management, without anomalous evidence
-  or strong runtime or platform backing
+  one or more known major namespace differences plus one namespace-managed
+  selector reason code, without anomalous or container-like selector evidence
 
 isolated:
   one or more known major namespace differences, but insufficient evidence for
   anomalous, container-like, or namespace-managed
 
 nested PID namespace with ns pid 1:
-  strong evidence for namespace-managed unless anomalous evidence or
-  runtime/platform evidence selects a higher-precedence primary label
+  namespace-managed selector evidence unless anomalous or container-like
+  evidence selects a higher-precedence primary label
 ```
 
 ### 10.4 Classification Limitation
@@ -993,6 +1070,25 @@ Target resolution uses these rules:
   change host PID target lookup because host PID targets already resolve from
   the full visible process scan.
 
+Host PID targets use a targeted output artifact set. The resolved target
+artifact is forcibly included in that set and assigned `A1`, even when it would
+be hidden from default broad output. This target-scoped `A1` is the
+`artifact_id` used in raw, JSON, and NDJSON target records and related artifact,
+process, limitation, and relationship records for that invocation.
+
+For host PID targets, `--include-host` does not change the target artifact ID.
+The same host PID target resolves to the same target-scoped `A1` under otherwise
+identical scan facts, grouping mode, and host profile, whether or not
+`--include-host` is present.
+
+For targeted `map` with a host PID target, the targeted output artifact set
+contains the resolved target artifact as `A1` plus any peer artifacts visible to
+the command's visibility mode that participate in emitted relationships. Peer
+artifact IDs are assigned after the target artifact using the artifact sort from
+section 12.3. Artifact ID targets do not use target-scoped ID assignment; they
+resolve only against IDs assigned after the command's normal visibility
+filtering.
+
 ---
 
 ## 13. Command Specifications
@@ -1093,8 +1189,8 @@ The output may be textual in v1.0. It does not need to be graphical.
 Without a target, `map` uses the same default artifact visibility as `list`.
 With `--include-host`, `map` includes host-classified artifacts before artifact
 ID assignment. With a target, `map` resolves the target according to section
-12.4 and renders relationships for the resolved artifact or PID-derived
-artifact within the visible scan.
+12.4 and renders relationships for the resolved artifact using the targeted
+output artifact set rules from that section.
 
 In v1.0, `map` emits only shared namespace relationships. The only v1.0
 relationship enum value is:
@@ -1118,6 +1214,9 @@ When `--group cgroup` is selected, `map` also generates `cgroup`
 relationships. When `--group strict` is selected, `map` also generates
 `uts`, `ipc`, `cgroup`, and `time` relationships. Missing or unreadable
 namespace IDs do not generate relationship rows for that namespace type.
+The process-distinct `unknown:<host-pid>` tokens used for grouping missing
+namespace IDs are internal group-key components only; they are never namespace
+IDs and must not generate relationship rows.
 
 Relationship rows are pairwise artifact rows grouped by namespace type and
 namespace ID. For every generated namespace type, find artifacts with the same
@@ -1131,13 +1230,13 @@ report.
 
 For each relationship row:
 
-- `left_artifact_id` is the earlier artifact by the artifact sort order from
-  section 12.3,
+- `left_artifact_id` is the earlier artifact by the current invocation's
+  artifact ID assignment,
 - `relationship` is `shares-namespace`,
 - `namespace_type` is the namespace type that matched,
 - `namespace_id` is the shared namespace inode string,
-- `right_artifact_id` is the later artifact by the artifact sort order from
-  section 12.3,
+- `right_artifact_id` is the later artifact by the current invocation's
+  artifact ID assignment,
 - `detail` is stable human-readable text describing the shared namespace.
 
 Suppress duplicate relationship rows by this identity:
@@ -1154,8 +1253,10 @@ Targeted `map` output emits only relationship rows where the resolved target
 artifact participates. A host PID target may resolve to an artifact hidden by
 default output according to section 12.4; in that case the target artifact is
 included for relationship generation, and peer artifacts are the artifacts
-visible to the command's visibility mode. Artifact ID targets resolve only
-against artifacts visible to the current command invocation.
+visible to the command's visibility mode. Host PID targeted `map` assigns `A1`
+to the target artifact and assigns peer artifact IDs after it as defined in
+section 12.4. Artifact ID targets resolve only against artifacts visible to the
+current command invocation.
 
 Raw, JSON, and NDJSON `map` relationship records must be emitted in this stable
 order:
@@ -1163,8 +1264,8 @@ order:
 1. namespace type order: `pid`, `mnt`, `net`, `user`, `cgroup`, `uts`, `ipc`,
    `time`,
 2. `namespace_id` bytewise ascending,
-3. `left_artifact_id` by the artifact sort order from section 12.3,
-4. `right_artifact_id` by the artifact sort order from section 12.3,
+3. `left_artifact_id` by current invocation artifact ID assignment,
+4. `right_artifact_id` by current invocation artifact ID assignment,
 5. relationship enum order: `shares-namespace`,
 6. `detail` bytewise ascending.
 

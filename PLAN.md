@@ -124,6 +124,8 @@ all public formats are documented as projections from it.
 
 ## Slice 3: Finite Classification Predicates
 
+Status: Resolved in `SPEC.md` and `DESIGN.md`.
+
 ### Objective
 
 Make `container-like` and `namespace-managed` label selection finite and
@@ -158,6 +160,23 @@ implementation-ready.
 For a fixed scan result, each non-host artifact has exactly one primary label
 without relying on phrases such as "strong evidence" or "host-managed patterns."
 
+### Resolution
+
+- Replaced open-ended `container-like` and `namespace-managed` label prose with
+  finite selector predicates in `SPEC.md` section 10.3.
+- Defined `container-like` selectors as runtime cgroup keyword, cgroup
+  container-ID, overlay/snapshotter mountinfo, and Kubernetes mountinfo reason
+  codes.
+- Defined `namespace-managed` selectors as nested PID init,
+  nested-PID-init-without-runtime, `machine.slice`, and exact `unshare`
+  metadata reason codes.
+- Decided `cgroup_machine_slice` is namespace-managed evidence by itself, not
+  container-like evidence. Higher-precedence anomaly or container-like
+  selectors still control the primary label when present.
+- Updated `DESIGN.md` so `classification_reason.tsv`, raw evidence rows, JSON,
+  and NDJSON can carry every selector reason code, and added acceptance fixture
+  coverage for selectors and precedence.
+
 ### Validation
 
 - Review the classification section against the scoring table and evidence table.
@@ -165,6 +184,8 @@ without relying on phrases such as "strong evidence" or "host-managed patterns."
 - `git diff --check` passes.
 
 ## Slice 4: Missing Namespace Group-Key Semantics
+
+Status: Resolved in `SPEC.md` and `DESIGN.md`.
 
 ### Objective
 
@@ -197,6 +218,26 @@ Define how missing namespace IDs participate in grouping keys.
 An implementer can construct the same group key for every visible PID, including
 partial namespace reads, without inference outside the spec.
 
+### Resolution
+
+- Defined namespace-based group-key construction for missing grouped namespace
+  IDs in `SPEC.md` section 9.
+- Missing grouped namespace IDs use an internal process-distinct
+  `unknown:<host-pid>` group-key component.
+- Missing grouped namespace IDs do not coalesce with known namespace IDs or with
+  other missing values from different host PIDs.
+- Missing ungrouped namespace IDs do not affect group identity.
+- Public artifact-level namespace fields still use missing values, not internal
+  unknown tokens.
+- Internal unknown group-key tokens do not participate in map relationship
+  generation.
+- Missing grouped namespace IDs emit limitations when the source failure is
+  known and affects grouping, sorting, target resolution detail, map
+  relationships, or namespace explanation; exit-code impact follows the
+  existing command materiality rules.
+- Updated `DESIGN.md` `artifact.tsv` `group_key` semantics and acceptance
+  fixture coverage.
+
 ### Validation
 
 - Check `SPEC.md` sections 9, 12.3, 12.4, and map relationship rules for
@@ -204,6 +245,8 @@ partial namespace reads, without inference outside the spec.
 - `git diff --check` passes.
 
 ## Slice 5: Host-PID Target Artifact ID Semantics
+
+Status: Complete in `SPEC.md` and `DESIGN.md`.
 
 ### Objective
 
@@ -237,6 +280,22 @@ Define artifact ID behavior for host PID targets that resolve hidden artifacts.
 `inspect`, `ps`, `report`, and `map` have one documented artifact ID behavior
 for host PID targets, including hidden artifacts.
 
+### Resolution
+
+- Defined host PID targets as using a target-scoped output artifact set.
+- Assigned the resolved host PID target artifact `A1` for targeted output,
+  including when the artifact is hidden from default broad output.
+- Defined `--include-host` as not changing the target artifact ID for the same
+  host PID target.
+- Defined targeted `map` peer artifact IDs as assigned after the target artifact
+  using normal artifact sort among peers visible to the command's visibility
+  mode.
+- Kept artifact ID targets on the existing visibility-filtered ID assignment
+  path; they do not use target-scoped assignment.
+- Mirrored the decision in `DESIGN.md` raw target records, JSON
+  `target_resolution`, targeted `map` semantics, command flows, and acceptance
+  fixture coverage.
+
 ### Validation
 
 - Search all `target_resolution`, `target artifact_id`, and host PID target
@@ -244,6 +303,8 @@ for host PID targets, including hidden artifacts.
 - `git diff --check` passes.
 
 ## Slice 6: Cross-Format Consistency Pass
+
+Status: Resolved in `SPEC.md`, `DESIGN.md`, and this plan.
 
 ### Objective
 
@@ -269,6 +330,18 @@ output descriptions.
 
 The docs describe one coherent v1.0 contract for scan workspace records,
 classification, grouping, target resolution, and public output formats.
+
+### Resolution
+
+- Added an explicit structured `cgroup_path` common type in `DESIGN.md` and
+  aligned NDJSON `cgroup_path` records to use it.
+- Clarified that JSON `artifact_detail.cgroup_paths` contains `cgroup_path`
+  objects backed by `process_cgroup.tsv`.
+- Clarified `map` relationship endpoint ordering as current-invocation artifact
+  ID assignment so host PID targeted `map` keeps the target artifact as `A1`
+  while peer artifacts are assigned after it.
+- Rechecked limitation, cgroup, mount, classification, grouping, and target
+  contracts across raw, JSON, NDJSON, and human-output descriptions.
 
 ### Validation
 

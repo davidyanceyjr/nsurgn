@@ -345,6 +345,25 @@ Artifact IDs are assigned after command visibility filtering and the artifact
 sort defined in `SPEC.md` section 12.3. They are valid only for the current
 invocation.
 
+`group_key` is the exact grouping key used to create the artifact. For
+namespace-based grouping modes, serialize the key as namespace type/value
+components joined by `+` in grouping-mode order:
+
+```text
+pid=<pid-component>+mnt=<mnt-component>+net=<net-component>+user=<user-component>
+```
+
+Strict mode appends `uts`, `ipc`, `cgroup`, and `time` components in the order
+defined by `SPEC.md` section 9.2. Single-namespace modes use only their one
+component, for example `mnt=<mnt-component>`.
+
+Known namespace components are namespace ID strings. Missing grouped namespace
+components use the process-distinct internal token from `SPEC.md` section 9:
+`unknown:<host-pid>`. This token may appear in `group_key` only; artifact
+namespace fields still use `-` for missing public values. Cgroup mode uses the
+`cgroup_group_key` from `process_cgroup_summary.tsv` instead of this
+namespace-component serialization.
+
 Artifact namespace fields are aggregate artifact-level values from `SPEC.md`
 section 9. Each field is a namespace ID string, `mixed`, or `-`. A field is
 `mixed` when member processes contain two or more known namespace IDs for that
@@ -377,6 +396,27 @@ classification evidence and flags that do not directly affect score. Scored
 reason codes must be emitted at most once per artifact for each v1.0 scoring
 signal. When multiple member processes expose the same scored signal, `detail`
 should contain representative evidence instead of multiplying `score_delta`.
+
+The classifier selects `container-like` and `namespace-managed` only from the
+finite selector reason-code sets in `SPEC.md` section 10.3. Therefore
+`classification_reason.tsv` must be able to carry every selector as an ordinary
+reason row:
+
+- `container-like` selectors: `cgroup_kubepods`, `cgroup_containerd`,
+  `cgroup_docker`, `cgroup_crio`, `cgroup_libpod`, `cgroup_lxc`,
+  `cgroup_container_id`, `mount_overlay_snapshotter`, and
+  `mount_kubernetes_projected`.
+- `namespace-managed` selectors: `nested_pid_init`,
+  `nested_pid_init_without_runtime`, `cgroup_machine_slice`, `unshare_comm`,
+  `unshare_cmdline`, and `unshare_exe_path`.
+- `anomalous` selectors: the finite anomaly reason codes in `SPEC.md` section
+  10.3.
+
+`cgroup_machine_slice` is namespace-managed evidence, not container-like
+evidence by itself. When it appears with a higher-precedence container-like or
+anomalous selector, the primary `classification` field follows precedence while
+the `cgroup_machine_slice` reason row remains available to raw, JSON, and
+NDJSON outputs.
 
 ### 6.9 `scan_limitation.tsv`
 
@@ -610,6 +650,12 @@ mount	overlay_or_snapshotter	true|false|-
 mount	kubernetes_projected	true|false|-
 ```
 
+For host PID targets, `target	artifact_id` is the target-scoped artifact ID
+from `SPEC.md` section 12.4. The resolved target artifact is always `A1` for
+the invocation, including when it is hidden from default broad output. The same
+rule applies to every raw row in the targeted `inspect` output that carries an
+artifact ID through JSON or NDJSON projections.
+
 Mount summary semantics:
 
 - `mountinfo_read_status` is `ok` only when `/proc/<pid>/mountinfo` is opened
@@ -757,6 +803,10 @@ contract as `inspect`. When `report` is called without a target, raw output uses
 the four-column multi-artifact contract and repeats the `inspect` section/key
 contract for each reported artifact.
 
+For host PID targeted `report`, the target-scoped artifact ID from `SPEC.md`
+section 12.4 is used inside target metadata and structured projections. The
+three-column raw report shape stays the same as `inspect`.
+
 Multi-artifact `report` may emit scan-level rows before artifact rows. Scan rows
 use `-` as the artifact ID:
 
@@ -901,6 +951,17 @@ Required fields: `namespace_type`, `host_id`, `target_id`, and `differs`.
 `differs` is `true`, `false`, or `null` when either side is missing or mixed in
 a way that prevents a stable equality decision.
 
+`cgroup_path`:
+
+```json
+{
+  "path": "/kubepods.slice/pod123"
+}
+```
+
+Required fields: `path`. `path` is a cgroup path string from
+`process_cgroup.tsv`.
+
 `artifact_summary`:
 
 ```json
@@ -1042,6 +1103,9 @@ that affect public output must identify the source whenever the source is known.
 ```
 
 Required fields: `input`, `input_type`, `artifact_id`, and `host_pid`.
+For `input_type: "host-pid"`, `artifact_id` is the target-scoped ID assigned by
+`SPEC.md` section 12.4. The resolved target artifact is `A1` even when hidden
+from default broad output, and `--include-host` does not change that target ID.
 
 `artifact_detail`:
 
@@ -1097,7 +1161,8 @@ Required fields: `input`, `input_type`, `artifact_id`, and `host_pid`.
 
 Required fields: `summary`, `namespace_profile`, `host_namespace_profile`,
 `namespace_differences`, `cgroup_paths`, `mount`, `processes`,
-`classification_reasons`, and `limitations`.
+`classification_reasons`, and `limitations`. `cgroup_paths` contains
+`cgroup_path` objects.
 
 `relationship`:
 
@@ -1113,9 +1178,12 @@ Required fields: `summary`, `namespace_profile`, `host_namespace_profile`,
 ```
 
 Required fields: `left_artifact_id`, `relationship`, `namespace_type`,
-`namespace_id`, `right_artifact_id`, and `detail`. `namespace_id` is a known
-namespace ID string. Relationships must not be emitted for missing or `mixed`
-namespace values because no stable shared namespace identity exists.
+`namespace_id`, `right_artifact_id`, and `detail`. Endpoint IDs are ordered by
+the current invocation's artifact ID assignment; for host PID targeted `map`,
+the target artifact is therefore `A1` and peer artifacts sort after it.
+`namespace_id` is a known namespace ID string. Relationships must not be emitted
+for missing or `mixed` namespace values because no stable shared namespace
+identity exists.
 
 ### 10.3 JSON Command Documents
 
@@ -1294,6 +1362,9 @@ object and `artifacts` contains exactly one artifact detail object.
 
 `scan` is a `scan_context`; `target` is either `null` or a
 `target_resolution`; `relationships` contains `relationship` objects.
+For host PID targeted `map`, `target.artifact_id` is `A1`. Relationship peer
+artifact IDs are assigned after the target artifact using `SPEC.md` section
+12.4, and only for peers visible to the command's visibility mode.
 
 `doctor`, `version`, and `help` may support JSON, but v1.0 only requires
 stable structured schemas for `list`, `inspect`, `ps`, `report`, and `map`.
@@ -1331,14 +1402,14 @@ common `relationship` object:
 
 `inspect` and `report` emit detail records in stable section form. Namespace
 profile records include `profile_scope` set to `artifact` or `host`. Cgroup path
-records contain one `path` string per visible cgroup path:
+records contain one `cgroup_path` object per visible cgroup path:
 
 ```jsonl
 {"schema_version":"nsurgn.output.v1","command":"inspect","record_type":"artifact_summary","artifact":{"artifact_id":"A1","classification":"container-like","score":13,"leader_pid":18342,"leader_ns_pid":1,"process_count":4,"runtime_hint":"kubernetes","cgroup_hint":"kubepods","leader_command":"nginx -g daemon off;","leader_reason":"nested-pid-init"}}
 {"schema_version":"nsurgn.output.v1","command":"inspect","record_type":"namespace_profile","artifact_id":"A1","profile_scope":"artifact","namespace_profile":{"pid":"4026532901","mnt":"4026532902","net":"4026532905","user":"4026531837","uts":"4026532903","ipc":"4026532904","cgroup":"4026532906","time":null}}
 {"schema_version":"nsurgn.output.v1","command":"inspect","record_type":"namespace_profile","artifact_id":"A1","profile_scope":"host","namespace_profile":{"pid":"4026531836","mnt":"4026531841","net":"4026531840","user":"4026531837","uts":"4026531838","ipc":"4026531839","cgroup":"4026531835","time":null}}
 {"schema_version":"nsurgn.output.v1","command":"inspect","record_type":"namespace_difference","artifact_id":"A1","namespace_difference":{"namespace_type":"pid","host_id":"4026531836","target_id":"4026532901","differs":true}}
-{"schema_version":"nsurgn.output.v1","command":"inspect","record_type":"cgroup_path","artifact_id":"A1","path":"/kubepods.slice/pod123"}
+{"schema_version":"nsurgn.output.v1","command":"inspect","record_type":"cgroup_path","artifact_id":"A1","cgroup_path":{"path":"/kubepods.slice/pod123"}}
 {"schema_version":"nsurgn.output.v1","command":"inspect","record_type":"mount_summary","artifact_id":"A1","mount":{"root_path":"/proc/18342/root","root_target":"/","mountinfo_read_status":"ok","mount_count":37,"overlay_or_snapshotter":false,"kubernetes_projected":true}}
 {"schema_version":"nsurgn.output.v1","command":"inspect","record_type":"classification_reason","artifact_id":"A1","classification_reason":{"code":"pid_ns_differs","score_delta":3,"detail":"pid namespace differs from host"}}
 {"schema_version":"nsurgn.output.v1","command":"inspect","record_type":"process","artifact_id":"A1","process":{"host_pid":18342,"ns_pid":1,"ppid":18301,"uid":101,"user":"nginx","state":"S","start_time":12345678,"command":"nginx -g daemon off;","comm":"nginx","exe_path":"/usr/sbin/nginx","root_path":"/proc/18342/root","root_target":"/","read_status":"ok","source_statuses":{"namespace":"ok","status":"ok","stat":"ok","cmdline":"ok","comm":"ok","cgroup":"ok","root":"ok","exe":"ok"}}}
@@ -1371,6 +1442,7 @@ render artifact summaries
 parse target
 scan visible processes
 if target is host PID, resolve from full visible process scan
+if target is host PID, assign the resolved target artifact target-scoped ID A1
 if target is artifact ID, filter host artifacts unless --include-host
 if target is artifact ID, assign IDs and resolve against assigned IDs
 render target metadata, namespace comparison, leader reason, and evidence
@@ -1382,9 +1454,10 @@ render target metadata, namespace comparison, leader reason, and evidence
 parse target
 scan visible processes
 if target is host PID, resolve from full visible process scan
+if target is host PID, assign the resolved target artifact target-scoped ID A1
 if target is artifact ID, filter host artifacts unless --include-host
 if target is artifact ID, assign IDs and resolve against assigned IDs
-render process records for the artifact or PID-derived artifact
+render process records for the resolved artifact
 ```
 
 ### 11.4 `report`
@@ -1393,6 +1466,7 @@ render process records for the artifact or PID-derived artifact
 scan visible processes
 if no target, filter host artifacts unless --include-host
 if target is host PID, resolve from full visible process scan
+if target is host PID, assign the resolved target artifact target-scoped ID A1
 if target is artifact ID, filter host artifacts unless --include-host
 if target is artifact ID, assign IDs and resolve against assigned IDs
 render detailed artifact report and scan limitations
@@ -1404,6 +1478,8 @@ render detailed artifact report and scan limitations
 scan visible processes
 if no target, filter host artifacts unless --include-host
 if target is host PID, resolve from full visible process scan
+if target is host PID, assign the resolved target artifact target-scoped ID A1
+if target is host PID, assign visible relationship peers after A1 by artifact sort
 if target is artifact ID, filter host artifacts unless --include-host
 if target is artifact ID, assign IDs and resolve against assigned IDs
 derive shared namespace relationships using SPEC.md section 13.5
@@ -1468,7 +1544,11 @@ covers and keep `/proc` input files small enough for focused review.
 | Anomaly trigger: root differs without mount namespace difference | Process with a major namespace difference outside mount namespace, readable member `root_target` differing from host root, and mount namespace equal to the host profile. | Differing root target with mount namespace also differing; same root target with host mount namespace; unreadable `mountinfo` or `root_target`; minor-only namespace difference. | Classification is `anomalous` only for the positive fixture and includes `anomaly_root_diff_without_mnt_ns`; missing required evidence never satisfies the trigger. |
 | Anomaly trigger: runtime hint without PID or mount isolation | Artifact with a known major namespace difference, PID and mount namespace IDs equal to host profile, and at least one runtime hint. | Runtime hint with no major namespace difference; runtime hint with PID or mount namespace isolation; unreadable PID or mount namespace; minor-only namespace difference. | Classification is `anomalous` only for the positive fixture and includes `anomaly_runtime_hint_without_pid_mnt_ns`; spoofable runtime evidence alone is insufficient. |
 | Anomaly trigger: nested PID init with deleted executable | Member process with nested PID namespace init evidence, executable path ending in `(deleted)`, and artifact PID namespace differing from host profile. | Deleted executable without nested PID init; nested PID init with non-deleted executable; unreadable `exe`; PID namespace equal to host profile. | Classification is `anomalous` only for the positive fixture and includes `anomaly_nested_pid_init_deleted_exe`; unreadable executable metadata is a limitation, not anomaly evidence. |
-| Target visibility | Host PID target resolving to a host-equivalent artifact hidden from default broad output; host PID target resolving to a minor-only cgroup grouped artifact; artifact hidden by default but visible with `--include-host`. | Artifact ID target for a hidden default artifact without `--include-host`; artifact ID target after visibility changes alter ID assignment; nonexistent host PID target. | Host PID targets resolve from the full visible process scan; artifact ID targets resolve only after command visibility filtering; hidden artifact ID targets fail according to `SPEC.md` section 16.3. |
+| Container-like selector predicates | Artifacts with a known major namespace difference and one selector reason from each container-like source family: runtime cgroup keyword, long cgroup container ID, overlay or snapshotter mountinfo, and Kubernetes projected or serviceaccount mountinfo. | Same selector evidence with no known major namespace difference; `cgroup_machine_slice` without any container-like selector; unreadable cgroup or mountinfo that prevents a selector from matching. | Classification is `container-like` only when a `SPEC.md` section 10.3 container-like selector reason is present with a known major namespace difference and no anomaly; `cgroup_machine_slice` alone does not select `container-like`. |
+| Namespace-managed selector predicates | Artifacts with a known major namespace difference and one selector reason from each namespace-managed source family: `nested_pid_init`, `nested_pid_init_without_runtime`, `cgroup_machine_slice`, and `unshare` command, cmdline, or executable metadata. | Major namespace difference alone; mount namespace difference alone; root filesystem difference alone; `unshare`-style metadata with no known major namespace difference; unreadable command, cgroup, or executable metadata. | Classification is `namespace-managed` only when a `SPEC.md` section 10.3 namespace-managed selector reason is present and no anomaly or container-like selector matched; missing metadata is represented as limitations, not selector evidence. |
+| Classification precedence | Artifact matching both `cgroup_machine_slice` and `cgroup_docker`; artifact matching both `nested_pid_init` and `mount_overlay_snapshotter`; artifact matching any lower-precedence selector plus an anomaly trigger. | Matching only lower-precedence selectors; matching only score reasons such as namespace differences, root difference, or deleted executable without selector requirements. | Primary labels follow `anomalous`, `container-like`, `namespace-managed`, `isolated`; lower-precedence matching reasons remain in `classification_reason` output. |
+| Missing namespace group keys | Profile, strict, PID, mount, and network grouping fixtures where one process has all grouped namespace IDs known and another process is missing one grouped namespace ID; fixtures with two processes missing the same grouped namespace type. | Missing only an ungrouped namespace type; missing namespace IDs in map relationship-generating types; missing namespace IDs caused by permission denial or process churn. | Missing grouped namespace IDs use process-distinct `unknown:<host-pid>` components in `artifact.tsv` `group_key`; they do not coalesce with known values or with other missing processes; public artifact namespace fields render missing as `-`; map emits no relationships for missing or internal unknown components; limitations follow command materiality rules. |
+| Target visibility and PID-target IDs | Host PID target resolving to a host-equivalent artifact hidden from default broad output; host PID target resolving to a minor-only cgroup grouped artifact; artifact hidden by default but visible with `--include-host`; targeted `map` where a hidden host PID target shares a namespace with default-visible peers. | Artifact ID target for a hidden default artifact without `--include-host`; artifact ID target after visibility changes alter ID assignment; nonexistent host PID target; same host PID target with and without `--include-host`. | Host PID targets resolve from the full visible process scan and assign the resolved target artifact target-scoped `A1`; `--include-host` does not change that target ID; targeted `map` assigns relationship peers after `A1` using visible peer artifact sort; artifact ID targets resolve only after command visibility filtering; hidden artifact ID targets fail according to `SPEC.md` section 16.3. |
 | Exit-code materiality | Broad command with ordinary unreadable `root`, `exe`, `mountinfo`, `cmdline`, `status`, or `cgroup` represented as limitations while primary output remains coherent. | Targeted command where unreadable metadata prevents target resolution or primary output; targeted command where primary output exists but requested detail is materially incomplete; vanished target process; vanished non-target member during broad scan. | Exit codes follow `SPEC.md` section 16.3: non-material broad limitations stay `0`, material incomplete targeted detail exits `6`, unresolved vanished targets exit `4` or `7` as applicable, and ordinary vanished non-target members in broad scans remain limitations unless coherent primary output cannot be produced. |
 | Hint availability | Artifact with no matching hint and all relevant cgroup, mountinfo, command, process name, and executable source families readable. | Same no-hint artifact with one relevant source family unreadable, vanished, or partial; artifact with unreadable lower-precedence source but a higher-precedence readable hint. | Hint fields emit `none` only for known no-hint values; they emit missing values when a relevant source family prevents knowing that no hint exists, unless a higher-precedence readable hint matched. Limitation rows identify the unavailable source family. |
 | Host root target failure | Default host profile with readable `/proc/1/root`; `--host-pid` profile with readable `/proc/<host-pid>/root`; artifact root comparisons against that readable target. | Default host root unreadable; `--host-pid` root unreadable; host PID vanishes before root target read; otherwise matching root anomaly evidence without a readable host-profile root target. | Host root failure disables root equality and difference evidence for the scan, emits a scan limitation, and changes the exit code only when requested target detail or explanation materially depends on root comparison. |
