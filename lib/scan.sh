@@ -267,6 +267,265 @@ nsurgn_scan_read_stat_fields() {
   nsurgn_join_by_tab ok "$start_time"
 }
 
+nsurgn_scan_normalize_cgroup_controllers() {
+  local controllers="$1"
+  local controller
+  local controllers_array=()
+
+  IFS=',' read -r -a controllers_array <<<"$controllers"
+  for controller in "${controllers_array[@]}"; do
+    printf '%s\n' "$controller"
+  done | LC_ALL=C sort | paste -sd, -
+}
+
+nsurgn_scan_parse_cgroup_line_fields() {
+  local line="$1"
+  local hierarchy_id controllers path version normalized_controllers
+
+  case "$line" in
+    *:*:*) ;;
+    *) return 1 ;;
+  esac
+
+  hierarchy_id="${line%%:*}"
+  line="${line#*:}"
+  controllers="${line%%:*}"
+  path="${line#*:}"
+  [ -n "$path" ] || path='/'
+
+  if [ "$hierarchy_id" = '0' ] && [ -z "$controllers" ]; then
+    version='v2'
+    normalized_controllers='-'
+  else
+    version='v1'
+    normalized_controllers="$(nsurgn_scan_normalize_cgroup_controllers "$controllers")"
+  fi
+
+  printf '%s\034%s\034%s\034%s\034%s\n' "$version" "$hierarchy_id" "$controllers" "$normalized_controllers" "$path"
+}
+
+nsurgn_scan_cgroup_component_has_container_id() {
+  local component="$1"
+
+  [[ "$component" =~ (^|[^0-9a-f])[0-9a-f]{32,64}([^0-9a-f]|$) ]]
+}
+
+nsurgn_scan_cgroup_hint_for_path() {
+  local path="$1"
+  local component
+  local path_components=()
+
+  IFS='/' read -r -a path_components <<<"$path"
+  for component in "${path_components[@]}"; do
+    [ -n "$component" ] || continue
+    case "$component" in
+      *kubepods*) printf '%s\n' kubepods; return 0 ;;
+    esac
+  done
+  for component in "${path_components[@]}"; do
+    [ -n "$component" ] || continue
+    case "$component" in
+      *docker*) printf '%s\n' docker; return 0 ;;
+    esac
+  done
+  for component in "${path_components[@]}"; do
+    [ -n "$component" ] || continue
+    case "$component" in
+      *crio*|*cri-o*) printf '%s\n' crio; return 0 ;;
+    esac
+  done
+  for component in "${path_components[@]}"; do
+    [ -n "$component" ] || continue
+    case "$component" in
+      *libpod*) printf '%s\n' libpod; return 0 ;;
+    esac
+  done
+  for component in "${path_components[@]}"; do
+    [ -n "$component" ] || continue
+    case "$component" in
+      *containerd*) printf '%s\n' containerd; return 0 ;;
+    esac
+  done
+  for component in "${path_components[@]}"; do
+    [ -n "$component" ] || continue
+    case "$component" in
+      *lxc*) printf '%s\n' lxc; return 0 ;;
+    esac
+  done
+  for component in "${path_components[@]}"; do
+    [ -n "$component" ] || continue
+    case "$component" in
+      *machine.slice*) printf '%s\n' machine.slice; return 0 ;;
+    esac
+  done
+  for component in "${path_components[@]}"; do
+    [ -n "$component" ] || continue
+    if nsurgn_scan_cgroup_component_has_container_id "$component"; then
+      printf '%s\n' container-id
+      return 0
+    fi
+  done
+
+  printf '%s\n' none
+}
+
+nsurgn_scan_runtime_hint_for_cgroup_hint() {
+  local cgroup_hint="$1"
+
+  case "$cgroup_hint" in
+    kubepods) printf '%s\n' kubernetes ;;
+    docker) printf '%s\n' docker ;;
+    crio) printf '%s\n' crio ;;
+    libpod) printf '%s\n' podman ;;
+    containerd) printf '%s\n' containerd ;;
+    lxc) printf '%s\n' lxc ;;
+    machine.slice) printf '%s\n' systemd ;;
+    container-id) printf '%s\n' container-id ;;
+    none) printf '%s\n' none ;;
+    *) printf '%s\n' - ;;
+  esac
+}
+
+nsurgn_scan_cgroup_hint_rank() {
+  local cgroup_hint="$1"
+
+  case "$cgroup_hint" in
+    kubepods) printf '%s\n' 1 ;;
+    docker) printf '%s\n' 2 ;;
+    crio) printf '%s\n' 3 ;;
+    libpod) printf '%s\n' 4 ;;
+    containerd) printf '%s\n' 5 ;;
+    lxc) printf '%s\n' 6 ;;
+    machine.slice) printf '%s\n' 7 ;;
+    container-id) printf '%s\n' 8 ;;
+    none) printf '%s\n' 99 ;;
+    *) printf '%s\n' 100 ;;
+  esac
+}
+
+nsurgn_scan_read_cgroup_fields() {
+  local proc_root="${1:-/proc}"
+  local host_pid="$2"
+  local process_dir="${proc_root}/${host_pid}"
+  local cgroup_path="${process_dir}/cgroup"
+  local line parsed_fields status='ok'
+  local version hierarchy_id controllers normalized_controllers path
+  local line_index=0 path_count=0 found_v2=0 group_key='cgroup:unknown'
+  local cgroup_hint='none' runtime_hint='none' path_hint
+  local current_hint_rank path_hint_rank
+  local v2_path=''
+  local v1_pairs=()
+
+  if [ ! -d "$process_dir" ]; then
+    nsurgn_join_by_tab vanished cgroup:unknown - - 0
+    return 0
+  fi
+
+  if [ ! -r "$cgroup_path" ]; then
+    if [ ! -d "$process_dir" ]; then
+      nsurgn_join_by_tab vanished cgroup:unknown - - 0
+    else
+      nsurgn_join_by_tab permission-denied cgroup:unknown - - 0
+    fi
+    return 0
+  fi
+
+  if [ ! -f "$cgroup_path" ]; then
+    nsurgn_join_by_tab permission-denied cgroup:unknown - - 0
+    return 0
+  fi
+
+  while IFS= read -r line || [ -n "$line" ]; do
+    line_index=$((line_index + 1))
+    [ -n "$line" ] || continue
+    parsed_fields="$(nsurgn_scan_parse_cgroup_line_fields "$line")" || continue
+    IFS=$'\034' read -r version hierarchy_id controllers normalized_controllers path <<<"$parsed_fields"
+    path_count=$((path_count + 1))
+
+    path_hint="$(nsurgn_scan_cgroup_hint_for_path "$path")"
+    current_hint_rank="$(nsurgn_scan_cgroup_hint_rank "$cgroup_hint")"
+    path_hint_rank="$(nsurgn_scan_cgroup_hint_rank "$path_hint")"
+    if [ "$path_hint_rank" -lt "$current_hint_rank" ]; then
+      cgroup_hint="$path_hint"
+      runtime_hint="$(nsurgn_scan_runtime_hint_for_cgroup_hint "$cgroup_hint")"
+    fi
+
+    if [ "$version" = 'v2' ]; then
+      if [ "$found_v2" -eq 0 ]; then
+        found_v2=1
+        v2_path="$path"
+        nsurgn_scan_write_process_cgroup_row "$host_pid" "$line_index" "$version" "$hierarchy_id" "$controllers" "$normalized_controllers" "$path" true
+      else
+        nsurgn_scan_write_process_cgroup_row "$host_pid" "$line_index" "$version" "$hierarchy_id" "$controllers" "$normalized_controllers" "$path" false
+      fi
+    else
+      v1_pairs+=("${normalized_controllers}=${path}")
+      nsurgn_scan_write_process_cgroup_row "$host_pid" "$line_index" "$version" "$hierarchy_id" "$controllers" "$normalized_controllers" "$path" pending
+    fi
+  done <"$cgroup_path" || status='permission-denied'
+
+  if [ "$status" = 'permission-denied' ]; then
+    if [ ! -d "$process_dir" ]; then
+      nsurgn_join_by_tab vanished cgroup:unknown - - 0
+    else
+      nsurgn_join_by_tab permission-denied cgroup:unknown - - 0
+    fi
+    return 0
+  fi
+
+  if [ "$found_v2" -eq 1 ]; then
+    group_key="cgroup:v2:${v2_path}"
+  elif [ "${#v1_pairs[@]}" -gt 0 ]; then
+    group_key="cgroup:v1:$(printf '%s\n' "${v1_pairs[@]}" | LC_ALL=C sort | paste -sd';' -)"
+  fi
+
+  nsurgn_scan_finalize_process_cgroup_contributors "$host_pid" "$group_key"
+  nsurgn_join_by_tab ok "$group_key" "$cgroup_hint" "$runtime_hint" "$path_count"
+}
+
+nsurgn_scan_write_process_cgroup_row() {
+  local host_pid="$1"
+  local line_index="$2"
+  local cgroup_version="$3"
+  local hierarchy_id="$4"
+  local controllers="$5"
+  local normalized_controllers="$6"
+  local path="$7"
+  local contributes_to_group_key="$8"
+
+  [ -n "${NSURGN_SCAN_DIR:-}" ] || return 0
+  [ -f "${NSURGN_SCAN_DIR}/process_cgroup.tsv" ] || return 0
+
+  nsurgn_join_by_tab \
+    "$host_pid" \
+    "$line_index" \
+    "$cgroup_version" \
+    "$hierarchy_id" \
+    "$controllers" \
+    "$normalized_controllers" \
+    "$path" \
+    "$contributes_to_group_key" >>"${NSURGN_SCAN_DIR}/process_cgroup.tsv"
+}
+
+nsurgn_scan_finalize_process_cgroup_contributors() {
+  local host_pid="$1"
+  local group_key="$2"
+  local cgroup_file
+  local tmp_file
+
+  [ -n "${NSURGN_SCAN_DIR:-}" ] || return 0
+  cgroup_file="${NSURGN_SCAN_DIR}/process_cgroup.tsv"
+  [ -f "$cgroup_file" ] || return 0
+
+  tmp_file="${cgroup_file}.tmp"
+  awk -F '\t' -v OFS='\t' -v host_pid="$host_pid" -v group_key="$group_key" '
+    $1 == host_pid && $8 == "pending" {
+      $8 = (index(group_key, "cgroup:v1:") == 1) ? "true" : "false"
+    }
+    { print }
+  ' "$cgroup_file" >"$tmp_file" && mv -- "$tmp_file" "$cgroup_file"
+}
+
 nsurgn_scan_host_profile_has_required_namespaces() {
   local pid_ns="$1"
   local mnt_ns="$2"
@@ -328,6 +587,7 @@ nsurgn_scan_write_process_namespace_row() {
   local namespace_fields namespace_read_status
   local status_fields status_read_status ppid uid state ns_pid
   local stat_fields stat_read_status start_time
+  local cgroup_fields cgroup_read_status cgroup_group_key cgroup_hint runtime_hint path_count
   local read_status='ok'
   local pid_ns mnt_ns net_ns user_ns uts_ns ipc_ns cgroup_ns time_ns
 
@@ -337,19 +597,34 @@ nsurgn_scan_write_process_namespace_row() {
   IFS=$'\t' read -r status_read_status ppid uid state ns_pid <<<"$status_fields"
   stat_fields="$(nsurgn_scan_read_stat_fields "$proc_root" "$host_pid")"
   IFS=$'\t' read -r stat_read_status start_time <<<"$stat_fields"
+  cgroup_fields="$(nsurgn_scan_read_cgroup_fields "$proc_root" "$host_pid")"
+  IFS=$'\t' read -r cgroup_read_status cgroup_group_key cgroup_hint runtime_hint path_count <<<"$cgroup_fields"
 
   nsurgn_scan_write_process_source_limitation "$host_pid" namespace "$namespace_read_status" "${proc_root}/${host_pid}/ns"
   nsurgn_scan_write_process_source_limitation "$host_pid" status "$status_read_status" "${proc_root}/${host_pid}/status"
   nsurgn_scan_write_process_source_limitation "$host_pid" stat "$stat_read_status" "${proc_root}/${host_pid}/stat"
+  nsurgn_scan_write_process_source_limitation "$host_pid" cgroup "$cgroup_read_status" "${proc_root}/${host_pid}/cgroup"
 
   if [ "$namespace_read_status" = 'vanished' ] ||
     [ "$status_read_status" = 'vanished' ] ||
-    [ "$stat_read_status" = 'vanished' ]; then
+    [ "$stat_read_status" = 'vanished' ] ||
+    [ "$cgroup_read_status" = 'vanished' ]; then
     read_status='vanished'
   elif [ "$namespace_read_status" = 'permission-denied' ] ||
     [ "$status_read_status" = 'permission-denied' ] ||
-    [ "$stat_read_status" = 'permission-denied' ]; then
+    [ "$stat_read_status" = 'permission-denied' ] ||
+    [ "$cgroup_read_status" = 'permission-denied' ]; then
     read_status='permission-denied'
+  fi
+
+  if [ -n "${NSURGN_SCAN_DIR:-}" ] && [ -f "${NSURGN_SCAN_DIR}/process_cgroup_summary.tsv" ]; then
+    nsurgn_join_by_tab \
+      "$host_pid" \
+      "$cgroup_read_status" \
+      "$cgroup_group_key" \
+      "$cgroup_hint" \
+      "$runtime_hint" \
+      "$path_count" >>"${NSURGN_SCAN_DIR}/process_cgroup_summary.tsv"
   fi
 
   nsurgn_join_by_tab \
@@ -368,8 +643,8 @@ nsurgn_scan_write_process_namespace_row() {
     "$ipc_ns" \
     "$cgroup_ns" \
     "$time_ns" \
-    - \
-    - \
+    "$cgroup_hint" \
+    "$runtime_hint" \
     - \
     - \
     - \
@@ -381,7 +656,7 @@ nsurgn_scan_write_process_namespace_row() {
     "$stat_read_status" \
     - \
     - \
-    - \
+    "$cgroup_read_status" \
     - \
     -
 }
@@ -476,7 +751,8 @@ nsurgn_scan_process_namespace_group_key() {
 nsurgn_scan_update_namespace_aggregate() {
   local variable_name="$1"
   local process_value="$2"
-  local current_value="${!variable_name}"
+  local -n target_value="$variable_name"
+  local current_value="${target_value-}"
   local next_value
 
   [ "$process_value" != '-' ] || return 0
@@ -488,7 +764,7 @@ nsurgn_scan_update_namespace_aggregate() {
     *) next_value='mixed' ;;
   esac
 
-  printf -v "$variable_name" '%s' "$next_value"
+  target_value="$next_value"
 }
 
 nsurgn_scan_host_pid_namespace_from_profile() {
@@ -629,6 +905,7 @@ nsurgn_scan_build_artifacts() {
   local artifact_process_file="${4:-${NSURGN_SCAN_DIR}/artifact_process.tsv}"
   local host_profile_file="${5:-${NSURGN_SCAN_DIR}/host_profile.tsv}"
   local classification_reason_file="${6:-}"
+  local cgroup_summary_file
   local process_row group_key host_pid
   local pid_ns mnt_ns net_ns user_ns uts_ns ipc_ns cgroup_ns time_ns
   local start_time ns_pid read_status
@@ -656,6 +933,7 @@ nsurgn_scan_build_artifacts() {
   local -A oldest_pid=()
   local -A oldest_start_time=()
   local -A fallback_pid=()
+  local -A cgroup_group_key_by_pid=()
 
   if [ -z "$classification_reason_file" ]; then
     if [ -n "${NSURGN_SCAN_DIR:-}" ]; then
@@ -667,8 +945,25 @@ nsurgn_scan_build_artifacts() {
     fi
   fi
 
-  [ "$group_mode" != 'cgroup' ] || return 1
-  group_namespace_types="$(nsurgn_scan_group_namespace_types "$group_mode")" || return "$?"
+  if [ "$group_mode" = 'cgroup' ]; then
+    if [ -n "${NSURGN_SCAN_DIR:-}" ] && [ -f "${NSURGN_SCAN_DIR}/process_cgroup_summary.tsv" ]; then
+      cgroup_summary_file="${NSURGN_SCAN_DIR}/process_cgroup_summary.tsv"
+    elif [ "$process_file" != "${process_file%/*}" ] && [ -f "${process_file%/*}/process_cgroup_summary.tsv" ]; then
+      cgroup_summary_file="${process_file%/*}/process_cgroup_summary.tsv"
+    else
+      cgroup_summary_file=''
+    fi
+
+    if [ -n "$cgroup_summary_file" ]; then
+      while IFS=$'\t' read -r host_pid _ group_key _; do
+        [ -n "${host_pid:-}" ] || continue
+        [ -n "${group_key:-}" ] || group_key='cgroup:unknown'
+        cgroup_group_key_by_pid[$host_pid]="$group_key"
+      done <"$cgroup_summary_file"
+    fi
+  else
+    group_namespace_types="$(nsurgn_scan_group_namespace_types "$group_mode")" || return "$?"
+  fi
   if [ -f "$host_profile_file" ]; then
     IFS=$'\t' read -r \
       _ \
@@ -737,32 +1032,36 @@ nsurgn_scan_build_artifacts() {
       read_status \
       _ <<<"$process_row"
 
-    group_key=''
-    for namespace_type in $group_namespace_types; do
-      case "$namespace_type" in
-        pid) namespace_id="$pid_ns" ;;
-        mnt) namespace_id="$mnt_ns" ;;
-        net) namespace_id="$net_ns" ;;
-        user) namespace_id="$user_ns" ;;
-        uts) namespace_id="$uts_ns" ;;
-        ipc) namespace_id="$ipc_ns" ;;
-        cgroup) namespace_id="$cgroup_ns" ;;
-        time) namespace_id="$time_ns" ;;
-        *) return 1 ;;
-      esac
+    if [ "$group_mode" = 'cgroup' ]; then
+      group_key="${cgroup_group_key_by_pid[$host_pid]:-cgroup:unknown}"
+    else
+      group_key=''
+      for namespace_type in $group_namespace_types; do
+        case "$namespace_type" in
+          pid) namespace_id="$pid_ns" ;;
+          mnt) namespace_id="$mnt_ns" ;;
+          net) namespace_id="$net_ns" ;;
+          user) namespace_id="$user_ns" ;;
+          uts) namespace_id="$uts_ns" ;;
+          ipc) namespace_id="$ipc_ns" ;;
+          cgroup) namespace_id="$cgroup_ns" ;;
+          time) namespace_id="$time_ns" ;;
+          *) return 1 ;;
+        esac
 
-      if [ "$namespace_id" = '-' ]; then
-        group_component="${namespace_type}=unknown:${host_pid}"
-      else
-        group_component="${namespace_type}=${namespace_id}"
-      fi
+        if [ "$namespace_id" = '-' ]; then
+          group_component="${namespace_type}=unknown:${host_pid}"
+        else
+          group_component="${namespace_type}=${namespace_id}"
+        fi
 
-      if [ -n "$group_key" ]; then
-        group_key+="+${group_component}"
-      else
-        group_key="$group_component"
-      fi
-    done
+        if [ -n "$group_key" ]; then
+          group_key+="+${group_component}"
+        else
+          group_key="$group_component"
+        fi
+      done
+    fi
 
     if [ -z "${seen[$group_key]+x}" ]; then
       seen[$group_key]=1
@@ -932,9 +1231,7 @@ nsurgn_scan_run() {
   nsurgn_scan_enumerate_pids /proc >"${NSURGN_SCAN_DIR}/visible_pids.tsv"
   nsurgn_scan_read_host_profile /proc "$NSURGN_HOST_PID" || return "$?"
   nsurgn_scan_read_process_namespaces /proc
-  if [ "${NSURGN_GROUP:-profile}" != 'cgroup' ]; then
-    nsurgn_scan_build_artifacts "${NSURGN_GROUP:-profile}"
-  fi
+  nsurgn_scan_build_artifacts "${NSURGN_GROUP:-profile}"
 
   # Leader selection, scoring, and classification are added behind this shared
   # workspace so commands cannot drift into ad hoc scraping.

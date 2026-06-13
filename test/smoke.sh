@@ -254,6 +254,7 @@ run_namespace_reader_contract() {
     printf 'NSpid:\t42\t7\t1\n'
   } >"${tmpdir}/42/status"
   printf '42 (worker) S 24 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 123456 0\n' >"${tmpdir}/42/stat"
+  printf '0::/\n' >"${tmpdir}/42/cgroup"
 
   output="$(nsurgn_scan_parse_namespace_id pid 'pid:[4026531836]')" || {
     rm -rf "$tmpdir"
@@ -469,16 +470,110 @@ run_process_limitation_contract() {
     $1 == "warning" && $2 == "permission_denied" && $3 == "42" && $5 == "namespace" && $6 == "permission-denied" { permission_namespace=1 }
     $1 == "warning" && $2 == "permission_denied" && $3 == "42" && $5 == "status" && $6 == "permission-denied" { permission_status=1 }
     $1 == "warning" && $2 == "permission_denied" && $3 == "42" && $5 == "stat" && $6 == "permission-denied" { permission_stat=1 }
+    $1 == "warning" && $2 == "permission_denied" && $3 == "42" && $5 == "cgroup" && $6 == "permission-denied" { permission_cgroup=1 }
     $1 == "warning" && $2 == "process_vanished" && $3 == "99" && $5 == "namespace" && $6 == "vanished" { vanished_namespace=1 }
     $1 == "warning" && $2 == "process_vanished" && $3 == "99" && $5 == "status" && $6 == "vanished" { vanished_status=1 }
     $1 == "warning" && $2 == "process_vanished" && $3 == "99" && $5 == "stat" && $6 == "vanished" { vanished_stat=1 }
+    $1 == "warning" && $2 == "process_vanished" && $3 == "99" && $5 == "cgroup" && $6 == "vanished" { vanished_cgroup=1 }
     END {
-      print permission_namespace ":" permission_status ":" permission_stat ":" vanished_namespace ":" vanished_status ":" vanished_stat ":" NR
+      print permission_namespace ":" permission_status ":" permission_stat ":" permission_cgroup ":" vanished_namespace ":" vanished_status ":" vanished_stat ":" vanished_cgroup ":" NR
     }
   ' "${NSURGN_SCAN_DIR}/scan_limitation.tsv")"
-  [ "$limitation_summary" = '1:1:1:1:1:1:6' ] || {
+  [ "$limitation_summary" = '1:1:1:1:1:1:1:1:8' ] || {
     rm -rf "$tmpdir"
     fail "unexpected process limitations: ${limitation_summary}"
+  }
+
+  rm -rf "$tmpdir"
+  NSURGN_SCAN_DIR=''
+}
+
+run_cgroup_reader_contract() {
+  local tmpdir output expected row_summary
+
+  tmpdir="$(mktemp -d)"
+  mkdir -p "${tmpdir}/42" "${tmpdir}/43" "${tmpdir}/44" "${tmpdir}/scan"
+  NSURGN_SCAN_DIR="${tmpdir}/scan"
+  : >"${NSURGN_SCAN_DIR}/process_cgroup.tsv"
+  : >"${NSURGN_SCAN_DIR}/process_cgroup_summary.tsv"
+
+  {
+    printf '5:cpu,memory:/docker/ignored\n'
+    printf '0::/kubepods.slice/pod123\n'
+    printf '7:pids:/machine.slice\n'
+  } >"${tmpdir}/42/cgroup"
+
+  output="$(nsurgn_scan_read_cgroup_fields "$tmpdir" 42)" || {
+    rm -rf "$tmpdir"
+    fail 'cgroup v2 reader failed'
+  }
+  expected=$'ok\tcgroup:v2:/kubepods.slice/pod123\tkubepods\tkubernetes\t3'
+  [ "$output" = "$expected" ] || {
+    rm -rf "$tmpdir"
+    fail "unexpected cgroup v2 summary: ${output}"
+  }
+
+  awk -F '\t' '
+    NF != 8 { exit 1 }
+    $1 == "42" && $2 == "1" && $3 == "v1" && $6 == "cpu,memory" && $8 == "false" { v1a=1 }
+    $1 == "42" && $2 == "2" && $3 == "v2" && $7 == "/kubepods.slice/pod123" && $8 == "true" { v2=1 }
+    $1 == "42" && $2 == "3" && $3 == "v1" && $6 == "pids" && $8 == "false" { v1b=1 }
+    END { exit v1a && v2 && v1b ? 0 : 1 }
+  ' "${NSURGN_SCAN_DIR}/process_cgroup.tsv" || {
+    rm -rf "$tmpdir"
+    fail 'expected v2 cgroup row to be sole group-key contributor'
+  }
+
+  : >"${NSURGN_SCAN_DIR}/process_cgroup.tsv"
+  {
+    printf '\n'
+    printf '2:pids:/\n'
+    printf '5:memory,cpu:/docker/foo\n'
+  } >"${tmpdir}/43/cgroup"
+
+  output="$(nsurgn_scan_read_cgroup_fields "$tmpdir" 43)" || {
+    rm -rf "$tmpdir"
+    fail 'cgroup v1 reader failed'
+  }
+  expected=$'ok\tcgroup:v1:cpu,memory=/docker/foo;pids=/\tdocker\tdocker\t2'
+  [ "$output" = "$expected" ] || {
+    rm -rf "$tmpdir"
+    fail "unexpected cgroup v1 summary: ${output}"
+  }
+
+  awk -F '\t' '
+    NF != 8 { exit 1 }
+    $1 == "43" && $2 == "2" && $3 == "v1" && $6 == "pids" && $8 == "true" { pids=1 }
+    $1 == "43" && $2 == "3" && $3 == "v1" && $6 == "cpu,memory" && $8 == "true" { cpu=1 }
+    END { exit pids && cpu ? 0 : 1 }
+  ' "${NSURGN_SCAN_DIR}/process_cgroup.tsv" || {
+    rm -rf "$tmpdir"
+    fail 'expected all v1 cgroup rows to contribute after normalization'
+  }
+
+  : >"${tmpdir}/44/cgroup"
+  output="$(nsurgn_scan_read_cgroup_fields "$tmpdir" 44)" || {
+    rm -rf "$tmpdir"
+    fail 'empty cgroup reader failed'
+  }
+  expected=$'ok\tcgroup:unknown\tnone\tnone\t0'
+  [ "$output" = "$expected" ] || {
+    rm -rf "$tmpdir"
+    fail "unexpected empty cgroup summary: ${output}"
+  }
+
+  output="$(nsurgn_scan_write_process_namespace_row "$tmpdir" 44)" || {
+    rm -rf "$tmpdir"
+    fail 'process row with cgroup status failed'
+  }
+  printf '%s\n' "$output" | awk -F '\t' '$16 == "none" && $17 == "none" && $29 == "ok" { found=1 } END { exit found ? 0 : 1 }' || {
+    rm -rf "$tmpdir"
+    fail "expected process row to include cgroup hint and status: ${output}"
+  }
+  row_summary="$(tail -n 1 "${NSURGN_SCAN_DIR}/process_cgroup_summary.tsv")"
+  [ "$row_summary" = $'44\tok\tcgroup:unknown\tnone\tnone\t0' ] || {
+    rm -rf "$tmpdir"
+    fail "unexpected process cgroup summary row: ${row_summary}"
   }
 
   rm -rf "$tmpdir"
@@ -863,6 +958,44 @@ run_artifact_classification_contract() {
   rm -rf "$tmpdir"
 }
 
+run_cgroup_grouping_contract() {
+  local tmpdir process_file artifact_file artifact_process_file host_profile_file cgroup_summary_file
+
+  tmpdir="$(mktemp -d)"
+  process_file="${tmpdir}/process.tsv"
+  artifact_file="${tmpdir}/artifact.tsv"
+  artifact_process_file="${tmpdir}/artifact_process.tsv"
+  host_profile_file="${tmpdir}/host_profile.tsv"
+  cgroup_summary_file="${tmpdir}/process_cgroup_summary.tsv"
+  nsurgn_join_by_tab 1 5001 5002 5003 5004 5005 5006 5007 5008 ok >"$host_profile_file"
+
+  {
+    make_process_row_for_classification 91 7001 5002 5003 5004 5005 5006 5007 5008 91 10
+    make_process_row_for_classification 92 8001 5002 5003 5004 5005 5006 5007 5008 92 20
+    make_process_row_for_classification 93 9001 5002 5003 5004 5005 5006 5007 5008 93 30
+  } >"$process_file"
+
+  {
+    nsurgn_join_by_tab 91 ok cgroup:v2:/kubepods.slice/pod123 kubepods kubernetes 1
+    nsurgn_join_by_tab 92 ok cgroup:v2:/kubepods.slice/pod123 kubepods kubernetes 1
+    nsurgn_join_by_tab 93 ok cgroup:v1:cpu=/docker/foo docker docker 1
+  } >"$cgroup_summary_file"
+
+  nsurgn_scan_build_artifacts cgroup "$process_file" "$artifact_file" "$artifact_process_file" "$host_profile_file" ||
+    fail 'cgroup artifact grouping failed'
+
+  awk -F '\t' 'NF != 19 { exit 1 } END { exit NR == 2 ? 0 : 1 }' "$artifact_file" ||
+    fail 'expected two cgroup-grouped artifact rows'
+  awk -F '\t' '
+    $2 == "cgroup:v2:/kubepods.slice/pod123" && $3 == "mixed" && $15 == "2" { v2=1 }
+    $2 == "cgroup:v1:cpu=/docker/foo" && $3 == "9001" && $15 == "1" { v1=1 }
+    END { exit v2 && v1 ? 0 : 1 }
+  ' "$artifact_file" ||
+    fail 'expected cgroup summary keys to control artifact identity'
+
+  rm -rf "$tmpdir"
+}
+
 run_visible_artifact_contract() {
   local tmpdir artifact_file visible_artifact_file
 
@@ -1052,10 +1185,12 @@ run_pid_enumeration_contract
 run_namespace_reader_contract
 run_host_profile_reader_contract
 run_process_limitation_contract
+run_cgroup_reader_contract
 run_group_key_contract
 run_artifact_aggregation_contract
 run_artifact_leader_contract
 run_artifact_classification_contract
+run_cgroup_grouping_contract
 run_visible_artifact_contract
 run_list_raw_contract
 run_live_scan_workspace_contract
