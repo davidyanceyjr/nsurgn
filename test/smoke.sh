@@ -487,6 +487,53 @@ make_process_row_for_leader() {
     -
 }
 
+make_process_row_for_classification() {
+  local host_pid="$1"
+  local pid_ns="$2"
+  local mnt_ns="$3"
+  local net_ns="$4"
+  local user_ns="$5"
+  local uts_ns="$6"
+  local ipc_ns="$7"
+  local cgroup_ns="$8"
+  local time_ns="$9"
+  local ns_pid="${10}"
+  local start_time="${11}"
+
+  nsurgn_join_by_tab \
+    "$host_pid" \
+    1 \
+    0 \
+    - \
+    S \
+    "$start_time" \
+    "$ns_pid" \
+    "$pid_ns" \
+    "$mnt_ns" \
+    "$net_ns" \
+    "$user_ns" \
+    "$uts_ns" \
+    "$ipc_ns" \
+    "$cgroup_ns" \
+    "$time_ns" \
+    - \
+    - \
+    - \
+    - \
+    - \
+    - \
+    - \
+    ok \
+    ok \
+    ok \
+    ok \
+    - \
+    - \
+    - \
+    - \
+    -
+}
+
 run_group_key_contract() {
   local row_a row_b key_a key_b expected
 
@@ -665,6 +712,73 @@ run_artifact_leader_contract() {
   rm -rf "$tmpdir"
 }
 
+run_artifact_classification_contract() {
+  local tmpdir process_file artifact_file artifact_process_file host_profile_file classification_reason_file
+
+  tmpdir="$(mktemp -d)"
+  process_file="${tmpdir}/process.tsv"
+  artifact_file="${tmpdir}/artifact.tsv"
+  artifact_process_file="${tmpdir}/artifact_process.tsv"
+  host_profile_file="${tmpdir}/host_profile.tsv"
+  classification_reason_file="${tmpdir}/classification_reason.tsv"
+  nsurgn_join_by_tab 1 5001 5002 5003 5004 5005 5006 5007 5008 ok >"$host_profile_file"
+
+  {
+    make_process_row_for_classification 71 5001 5002 5003 5004 5005 5006 5007 5008 71 10
+    make_process_row_for_classification 72 5001 5002 5003 5004 7005 7006 5007 5008 72 20
+    make_process_row_for_classification 73 7001 5002 5003 5004 5005 5006 5007 5008 73 30
+    make_process_row_for_classification 74 8001 5002 5003 5004 5005 5006 5007 5008 1 40
+  } >"$process_file"
+
+  nsurgn_scan_build_artifacts strict "$process_file" "$artifact_file" "$artifact_process_file" "$host_profile_file" "$classification_reason_file" ||
+    fail 'artifact classification failed'
+
+  awk -F '\t' '
+    $2 == "pid=5001+mnt=5002+net=5003+user=5004+uts=5005+ipc=5006+cgroup=5007+time=5008" &&
+      $11 == "host" && $12 == "0" { host_found=1 }
+    $2 == "pid=5001+mnt=5002+net=5003+user=5004+uts=7005+ipc=7006+cgroup=5007+time=5008" &&
+      $11 == "host" && $12 == "2" { minor_found=1 }
+    $2 == "pid=7001+mnt=5002+net=5003+user=5004+uts=5005+ipc=5006+cgroup=5007+time=5008" &&
+      $11 == "isolated" && $12 == "3" { isolated_found=1 }
+    $2 == "pid=8001+mnt=5002+net=5003+user=5004+uts=5005+ipc=5006+cgroup=5007+time=5008" &&
+      $11 == "namespace-managed" && $12 == "7" { namespace_managed_found=1 }
+    END { exit host_found && minor_found && isolated_found && namespace_managed_found ? 0 : 1 }
+  ' "$artifact_file" ||
+    fail 'expected namespace-only classification and scores'
+
+  awk -F '\t' '
+    $2 == "uts_ns_differs" { uts += 1; uts_delta = $3 }
+    $2 == "ipc_ns_differs" { ipc += 1; ipc_delta = $3 }
+    $2 == "pid_ns_differs" { pid += 1; pid_delta[$1] = $3 }
+    $2 == "nested_pid_init" { nested += 1; nested_delta = $3 }
+    END {
+      exit uts == 1 && uts_delta == 1 &&
+        ipc == 1 && ipc_delta == 1 &&
+        pid == 2 &&
+        nested == 1 && nested_delta == 4 ? 0 : 1
+    }
+  ' "$classification_reason_file" ||
+    fail 'expected classification reasons emitted once per scored signal'
+
+  {
+    make_process_row_for_classification 81 5001 9002 5003 5004 5005 5006 5007 5008 81 10
+    make_process_row_for_classification 82 9001 9002 5003 5004 5005 5006 5007 5008 82 20
+    make_process_row_for_classification 83 - 9003 5003 5004 5005 5006 5007 5008 83 30
+  } >"$process_file"
+
+  nsurgn_scan_build_artifacts mnt "$process_file" "$artifact_file" "$artifact_process_file" "$host_profile_file" "$classification_reason_file" ||
+    fail 'mixed and missing classification failed'
+
+  awk -F '\t' '
+    $2 == "mnt=9002" && $3 == "mixed" && $11 == "isolated" && $12 == "3" { mixed_found=1 }
+    $2 == "mnt=9003" && $3 == "-" && $11 == "isolated" && $12 == "3" { missing_found=1 }
+    END { exit mixed_found && missing_found ? 0 : 1 }
+  ' "$artifact_file" ||
+    fail 'expected missing and mixed namespace values not to score as PID differences'
+
+  rm -rf "$tmpdir"
+}
+
 restore_live_scan_state() {
   local previous_scan_dir="$1"
   local previous_host_pid="$2"
@@ -811,6 +925,7 @@ run_process_limitation_contract
 run_group_key_contract
 run_artifact_aggregation_contract
 run_artifact_leader_contract
+run_artifact_classification_contract
 run_live_scan_workspace_contract
 run_shellcheck_if_available
 

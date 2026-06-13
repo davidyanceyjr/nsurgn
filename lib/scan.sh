@@ -504,18 +504,69 @@ nsurgn_scan_host_pid_namespace_from_profile() {
   printf '%s\n' "$host_pid_ns"
 }
 
+nsurgn_scan_namespace_diff_score_delta() {
+  local namespace_type="$1"
+
+  case "$namespace_type" in
+    pid|mnt) printf '3\n' ;;
+    net|user) printf '2\n' ;;
+    uts|ipc|cgroup|time) printf '1\n' ;;
+    *) return 1 ;;
+  esac
+}
+
+nsurgn_scan_namespace_is_major() {
+  local namespace_type="$1"
+
+  case "$namespace_type" in
+    pid|mnt|net|user) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+nsurgn_scan_add_namespace_diff_score() {
+  local artifact_id="$1"
+  local namespace_type="$2"
+  local artifact_namespace_id="$3"
+  local host_namespace_id="$4"
+  local reason_file="$5"
+  local score_variable="$6"
+  local major_diff_variable="$7"
+  local score_delta
+
+  case "$artifact_namespace_id" in
+    '-'|mixed) return 0 ;;
+  esac
+  [ "$host_namespace_id" != '-' ] || return 0
+  [ "$artifact_namespace_id" != "$host_namespace_id" ] || return 0
+
+  score_delta="$(nsurgn_scan_namespace_diff_score_delta "$namespace_type")" || return "$?"
+  printf -v "$score_variable" '%s' "$((${!score_variable} + score_delta))"
+  if nsurgn_scan_namespace_is_major "$namespace_type"; then
+    printf -v "$major_diff_variable" '%s' 1
+  fi
+
+  nsurgn_join_by_tab \
+    "$artifact_id" \
+    "${namespace_type}_ns_differs" \
+    "$score_delta" \
+    "host=${host_namespace_id},artifact=${artifact_namespace_id}" >>"$reason_file"
+}
+
 nsurgn_scan_build_artifacts() {
   local group_mode="${1:-${NSURGN_GROUP:-profile}}"
   local process_file="${2:-${NSURGN_SCAN_DIR}/process.tsv}"
   local artifact_file="${3:-${NSURGN_SCAN_DIR}/artifact.tsv}"
   local artifact_process_file="${4:-${NSURGN_SCAN_DIR}/artifact_process.tsv}"
   local host_profile_file="${5:-${NSURGN_SCAN_DIR}/host_profile.tsv}"
+  local classification_reason_file="${6:-}"
   local process_row group_key host_pid
   local pid_ns mnt_ns net_ns user_ns uts_ns ipc_ns cgroup_ns time_ns
   local start_time ns_pid read_status
   local artifact_index artifact_id member_pid sorted_keys leader_pid leader_ns_pid leader_reason role
   local namespace_type namespace_id group_component group_namespace_types
-  local host_pid_ns member_key
+  local host_pid_ns host_mnt_ns host_net_ns host_user_ns host_uts_ns host_ipc_ns host_cgroup_ns host_time_ns
+  local member_key classification score major_namespace_diff nested_pid_init_evidence
   local _
   local keys=()
   local -A seen=()
@@ -537,9 +588,57 @@ nsurgn_scan_build_artifacts() {
   local -A oldest_start_time=()
   local -A fallback_pid=()
 
+  if [ -z "$classification_reason_file" ]; then
+    if [ -n "${NSURGN_SCAN_DIR:-}" ]; then
+      classification_reason_file="${NSURGN_SCAN_DIR}/classification_reason.tsv"
+    elif [ "$artifact_file" != "${artifact_file%/*}" ]; then
+      classification_reason_file="${artifact_file%/*}/classification_reason.tsv"
+    else
+      classification_reason_file='classification_reason.tsv'
+    fi
+  fi
+
   [ "$group_mode" != 'cgroup' ] || return 1
   group_namespace_types="$(nsurgn_scan_group_namespace_types "$group_mode")" || return "$?"
-  host_pid_ns="$(nsurgn_scan_host_pid_namespace_from_profile "$host_profile_file")"
+  if [ -f "$host_profile_file" ]; then
+    IFS=$'\t' read -r \
+      _ \
+      host_pid_ns \
+      host_mnt_ns \
+      host_net_ns \
+      host_user_ns \
+      host_uts_ns \
+      host_ipc_ns \
+      host_cgroup_ns \
+      host_time_ns \
+      _ <"$host_profile_file" || {
+        host_pid_ns='-'
+        host_mnt_ns='-'
+        host_net_ns='-'
+        host_user_ns='-'
+        host_uts_ns='-'
+        host_ipc_ns='-'
+        host_cgroup_ns='-'
+        host_time_ns='-'
+      }
+  else
+    host_pid_ns='-'
+    host_mnt_ns='-'
+    host_net_ns='-'
+    host_user_ns='-'
+    host_uts_ns='-'
+    host_ipc_ns='-'
+    host_cgroup_ns='-'
+    host_time_ns='-'
+  fi
+  [ -n "${host_pid_ns:-}" ] || host_pid_ns='-'
+  [ -n "${host_mnt_ns:-}" ] || host_mnt_ns='-'
+  [ -n "${host_net_ns:-}" ] || host_net_ns='-'
+  [ -n "${host_user_ns:-}" ] || host_user_ns='-'
+  [ -n "${host_uts_ns:-}" ] || host_uts_ns='-'
+  [ -n "${host_ipc_ns:-}" ] || host_ipc_ns='-'
+  [ -n "${host_cgroup_ns:-}" ] || host_cgroup_ns='-'
+  [ -n "${host_time_ns:-}" ] || host_time_ns='-'
 
   while IFS= read -r process_row; do
     [ -n "$process_row" ] || continue
@@ -662,6 +761,7 @@ nsurgn_scan_build_artifacts() {
 
   : >"$artifact_file"
   : >"$artifact_process_file"
+  : >"$classification_reason_file"
 
   [ "${#keys[@]}" -gt 0 ] || return 0
 
@@ -690,6 +790,33 @@ nsurgn_scan_build_artifacts() {
     artifact_id="G${artifact_index}"
     member_key="${group_key}"$'\t'"${leader_pid}"
     leader_ns_pid="${member_ns_pid[$member_key]:--}"
+    score=0
+    major_namespace_diff=0
+    nested_pid_init_evidence=0
+
+    nsurgn_scan_add_namespace_diff_score "$artifact_id" pid "${aggregate_pid_ns[$group_key]}" "$host_pid_ns" "$classification_reason_file" score major_namespace_diff
+    nsurgn_scan_add_namespace_diff_score "$artifact_id" mnt "${aggregate_mnt_ns[$group_key]}" "$host_mnt_ns" "$classification_reason_file" score major_namespace_diff
+    nsurgn_scan_add_namespace_diff_score "$artifact_id" net "${aggregate_net_ns[$group_key]}" "$host_net_ns" "$classification_reason_file" score major_namespace_diff
+    nsurgn_scan_add_namespace_diff_score "$artifact_id" user "${aggregate_user_ns[$group_key]}" "$host_user_ns" "$classification_reason_file" score major_namespace_diff
+    nsurgn_scan_add_namespace_diff_score "$artifact_id" uts "${aggregate_uts_ns[$group_key]}" "$host_uts_ns" "$classification_reason_file" score major_namespace_diff
+    nsurgn_scan_add_namespace_diff_score "$artifact_id" ipc "${aggregate_ipc_ns[$group_key]}" "$host_ipc_ns" "$classification_reason_file" score major_namespace_diff
+    nsurgn_scan_add_namespace_diff_score "$artifact_id" cgroup "${aggregate_cgroup_ns[$group_key]}" "$host_cgroup_ns" "$classification_reason_file" score major_namespace_diff
+    nsurgn_scan_add_namespace_diff_score "$artifact_id" time "${aggregate_time_ns[$group_key]}" "$host_time_ns" "$classification_reason_file" score major_namespace_diff
+
+    if [ -n "${nested_known_pid[$group_key]:-}" ] || [ -n "${nested_unknown_pid[$group_key]:-}" ]; then
+      nested_pid_init_evidence=1
+      score=$((score + 4))
+      nsurgn_join_by_tab "$artifact_id" nested_pid_init 4 "pid=${leader_pid}" >>"$classification_reason_file"
+    fi
+
+    classification='host'
+    if [ "$major_namespace_diff" -eq 1 ]; then
+      if [ "$nested_pid_init_evidence" -eq 1 ]; then
+        classification='namespace-managed'
+      else
+        classification='isolated'
+      fi
+    fi
 
     nsurgn_join_by_tab \
       "$artifact_id" \
@@ -702,8 +829,8 @@ nsurgn_scan_build_artifacts() {
       "${aggregate_ipc_ns[$group_key]}" \
       "${aggregate_cgroup_ns[$group_key]}" \
       "${aggregate_time_ns[$group_key]}" \
-      - \
-      - \
+      "$classification" \
+      "$score" \
       "$leader_pid" \
       "$leader_ns_pid" \
       "${process_count[$group_key]}" \

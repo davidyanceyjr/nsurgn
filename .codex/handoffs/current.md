@@ -3,7 +3,7 @@
 Handoff Status: active
 
 ## Objective
-Continue M3 artifact discovery work after completing deterministic leader selection.
+Continue M3 artifact discovery work after completing minimal namespace-only scoring and classification.
 
 ## Current State
 - Current branch is `m3-artifact-list`.
@@ -11,35 +11,30 @@ Continue M3 artifact discovery work after completing deterministic leader select
 - M3.1 group key construction is complete for `profile`, `strict`, `pid`, `mnt`, and `net`.
 - M3.2 artifact namespace aggregation is complete for namespace-based grouping modes.
 - M3.3 deterministic leader selection is complete in `lib/scan.sh`.
-- `nsurgn_scan_build_artifacts` now reads the host PID namespace from `host_profile.tsv`, prefers nested PID namespace init candidates, then lowest known `start_time`, then lowest eligible host PID.
-- `artifact.tsv` now populates `leader_pid`, `leader_ns_pid`, and `leader_reason`; `leader_command` remains `-` until command/cmdline readers exist.
-- `artifact_process.tsv` now marks the selected member as `leader` and other members as `member`.
+- M3.4 minimal scoring and classification is complete in `lib/scan.sh`.
+- `artifact.tsv` now populates namespace-only `classification`, `score`, `runtime_hint`, `cgroup_hint`, leader fields, and process counts.
+- `classification_reason.tsv` now emits namespace difference reason rows and `nested_pid_init` reason rows.
+- `runtime_hint` and `cgroup_hint` remain `-` until relevant metadata readers can prove hints or prove `none`.
+- `leader_command` remains `-` until command/cmdline readers exist.
 - `--group cgroup` remains parsed but artifact building is skipped until cgroup summary records exist.
 - Internal placeholder artifact IDs `G1`, `G2`, etc. remain; public `A*` IDs are deferred to M3.5.
-- Scoring, classification, visibility sorting, public artifact IDs, and real `list` output are still not implemented.
+- Visibility filtering, sorting, public artifact IDs, and real `list` output are still not implemented.
 
 ## Changed Artifacts
-- `lib/scan.sh`: adds host PID namespace lookup, per-group leader tracking, deterministic leader field population, and leader/member role writing.
-- `test/smoke.sh`: adds direct leader-selection smoke tests for nested PID namespace init, oldest-process selection with host PID tie-break, and lowest-host-PID fallback while ignoring vanished members.
-- `.codex/plans/m3-artifact-list-plan.md`: marks M3.3 complete and updates current state.
+- `lib/scan.sh`: adds namespace score helpers, host-profile comparison for all namespace types, classification reason writing, namespace-only score calculation, and `host`/`isolated`/`namespace-managed` classification.
+- `test/smoke.sh`: adds direct classification smoke tests for host, minor-only host, isolated major namespace difference, nested PID namespace-managed classification, and missing/mixed namespace values.
+- `.codex/plans/m3-artifact-list-plan.md`: marks M3.4 complete and updates current state.
 - `.codex/handoffs/current.md`: refreshed for the next continuation action.
 
 ## Checks And Evidence
 - Ran `bash -n lib/scan.sh test/smoke.sh`; result: passed.
 - Ran `./test/smoke.sh`; result: `ok - scaffold smoke tests passed`.
-- Smoke coverage now includes:
-  - nested PID namespace init winning over older process and lower host PID;
-  - oldest known `start_time` winning when no nested PID init candidate exists;
-  - equal `start_time` tie broken by lowest host PID;
-  - missing `start_time` fallback to lowest eligible host PID;
-  - vanished process excluded from leader eligibility;
-  - leader role written to `artifact_process.tsv`.
 
 ## Risks, Blockers, And Open Questions
-- `leader_command` is intentionally still missing because command/cmdline readers are not implemented yet.
-- No `classification_reason.tsv` rows are emitted yet.
-- `runtime_hint`, `cgroup_hint`, `classification`, and `score` remain placeholders.
-- Public command-scoped artifact IDs and real raw `list` output remain deferred.
+- No public command-scoped `A*` artifact IDs are assigned yet.
+- Default host hiding and `--include-host` visibility behavior are not implemented yet.
+- `list` still returns scaffolded not-implemented behavior after scan.
+- Runtime/cgroup hints, command rendering, cgroup grouping, and non-raw output formats remain deferred.
 
 ## Immediate Next Action And Owner
-Owner: Unknown. Implement M3.4 minimal scoring and classification from `.codex/plans/m3-artifact-list-plan.md`.
+Owner: Unknown. Implement M3.5 visibility filtering, stable artifact sorting, and command-scoped public artifact IDs from `.codex/plans/m3-artifact-list-plan.md`.

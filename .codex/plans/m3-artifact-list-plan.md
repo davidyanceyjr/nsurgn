@@ -35,11 +35,12 @@ Current `lib/scan.sh`:
 - reads the host namespace profile;
 - writes one process namespace and minimal metadata row per coherent visible process;
 - builds deterministic namespace group keys for `profile`, `strict`, `pid`, `mnt`, and `net`;
-- populates preliminary `artifact.tsv` rows with internal placeholder IDs, group keys, aggregate namespace fields, placeholder classification fields, and process counts;
+- populates preliminary `artifact.tsv` rows with internal placeholder IDs, group keys, aggregate namespace fields, namespace-only classification fields, and process counts;
 - populates `artifact.tsv` leader fields and `artifact_process.tsv` leader/member roles using deterministic leader selection;
+- populates namespace-only `classification`, `score`, `runtime_hint`, `cgroup_hint`, and `classification_reason.tsv` rows;
 - records namespace/status/stat limitations.
 
-Scan commands still call `nsurgn_cmd_scaffolded_scan_command`, run the scan, and return not-implemented behavior. `classification_reason.tsv` is created but not populated.
+Scan commands still call `nsurgn_cmd_scaffolded_scan_command`, run the scan, and return not-implemented behavior.
 
 ## Slice Status
 
@@ -48,7 +49,7 @@ Scan commands still call `nsurgn_cmd_scaffolded_scan_command`, run the scan, and
 | M3.1 Group Key Construction | Complete | Implemented in `lib/scan.sh`; covered by `run_group_key_contract`; `./test/smoke.sh` passes at commit `275d795`. | None |
 | M3.2 Artifact Namespace Aggregation | Complete | Implemented in `lib/scan.sh`; covered by `run_artifact_aggregation_contract` and live workspace checks; `./test/smoke.sh` passes at commit `275d795`. | None |
 | M3.3 Deterministic Leader Selection | Complete | Implemented in `lib/scan.sh`; covered by `run_artifact_leader_contract`; `./test/smoke.sh` passes. | None |
-| M3.4 Minimal Scoring And Classification | Pending | Not implemented. `classification_reason.tsv`, `classification`, `score`, and hint fields remain placeholders. | Start after M3.3 leader data is stable. |
+| M3.4 Minimal Scoring And Classification | Complete | Implemented in `lib/scan.sh`; covered by `run_artifact_classification_contract`; `./test/smoke.sh` passes. | None |
 | M3.5 Visibility, Sorting, And Artifact IDs | Pending | Not implemented. Public command-scoped `A*` IDs are not assigned. | Start after M3.4 classification and scores are stable. |
 | M3.6 First Real `nsurgn list` Raw Output | Pending | Not implemented. `list` still returns scaffolded not-implemented behavior after scan. | Start after M3.5 visible artifact view exists. |
 
