@@ -74,6 +74,90 @@ run_stderr_only_status() {
   rm -rf "$tmpdir"
 }
 
+run_success_quiet() {
+  local tmpdir out err
+
+  tmpdir="$(mktemp -d)"
+  out="${tmpdir}/stdout"
+  err="${tmpdir}/stderr"
+
+  "$@" >"$out" 2>"$err" || {
+    local actual="$?"
+    rm -rf "$tmpdir"
+    fail "expected success: $* exited ${actual}"
+  }
+
+  [ ! -s "$err" ] || {
+    rm -rf "$tmpdir"
+    fail "expected empty stderr: $*"
+  }
+
+  rm -rf "$tmpdir"
+}
+
+run_list_raw_contract() {
+  local tmpdir default_out default_err include_out include_err actual
+
+  tmpdir="$(mktemp -d)"
+  default_out="${tmpdir}/default.out"
+  default_err="${tmpdir}/default.err"
+  include_out="${tmpdir}/include.out"
+  include_err="${tmpdir}/include.err"
+
+  actual=0
+  "$NSURGN" --host-pid "$$" list >"$default_out" 2>"$default_err" || actual="$?"
+  [ "$actual" -eq 0 ] || {
+    rm -rf "$tmpdir"
+    fail "expected raw list success, got ${actual}"
+  }
+  [ ! -s "$default_err" ] || {
+    rm -rf "$tmpdir"
+    fail 'expected raw list stderr to be empty'
+  }
+  awk -F '\t' 'NF != 8 { exit 1 } $1 !~ /^A[0-9]+$/ { exit 1 }' "$default_out" ||
+    {
+      rm -rf "$tmpdir"
+      fail 'expected default raw list rows to have eight fields and artifact IDs'
+    }
+
+  actual=0
+  "$NSURGN" --host-pid "$$" --include-host list >"$include_out" 2>"$include_err" || actual="$?"
+  [ "$actual" -eq 0 ] || {
+    rm -rf "$tmpdir"
+    fail "expected include-host raw list success, got ${actual}"
+  }
+  [ ! -s "$include_err" ] || {
+    rm -rf "$tmpdir"
+    fail 'expected include-host raw list stderr to be empty'
+  }
+  [ -s "$include_out" ] || {
+    rm -rf "$tmpdir"
+    fail 'expected include-host raw list rows'
+  }
+  awk -F '\t' '
+    NF != 8 { exit 1 }
+    $1 !~ /^A[0-9]+$/ { exit 1 }
+    $2 == "host" { host=1 }
+    END { exit host ? 0 : 1 }
+  ' "$include_out" || {
+    rm -rf "$tmpdir"
+    fail 'expected include-host raw list to expose a host-classified artifact'
+  }
+
+  actual=0
+  "$NSURGN" --format raw --host-pid "$$" --include-host list >/dev/null 2>"${tmpdir}/format.err" || actual="$?"
+  [ "$actual" -eq 0 ] || {
+    rm -rf "$tmpdir"
+    fail "expected explicit raw list success, got ${actual}"
+  }
+  [ ! -s "${tmpdir}/format.err" ] || {
+    rm -rf "$tmpdir"
+    fail 'expected explicit raw list stderr to be empty'
+  }
+
+  rm -rf "$tmpdir"
+}
+
 run_doctor_contract() {
   local tmpdir out err actual
 
@@ -779,6 +863,51 @@ run_artifact_classification_contract() {
   rm -rf "$tmpdir"
 }
 
+run_visible_artifact_contract() {
+  local tmpdir artifact_file visible_artifact_file
+
+  tmpdir="$(mktemp -d)"
+  artifact_file="${tmpdir}/artifact.tsv"
+  visible_artifact_file="${tmpdir}/visible_artifact.tsv"
+
+  {
+    nsurgn_join_by_tab G1 'pid=5001+mnt=5002+net=5003+user=5004' 5001 5002 5003 5004 5005 5006 5007 5008 host 0 10 10 1 - - - oldest-process
+    nsurgn_join_by_tab G2 'pid=7001+mnt=5002+net=5003+user=5004' 7001 5002 5003 5004 5005 5006 5007 5008 isolated 3 30 30 1 - - - oldest-process
+    nsurgn_join_by_tab G3 'pid=8001+mnt=5002+net=5003+user=5004' 8001 5002 5003 5004 5005 5006 5007 5008 namespace-managed 7 40 1 1 - - - nested-pid-init
+    nsurgn_join_by_tab G4 'pid=9001+mnt=5002+net=5003+user=5004' 9001 5002 5003 5004 5005 5006 5007 5008 isolated 7 20 20 1 - - - oldest-process
+    nsurgn_join_by_tab G5 'pid=9002+mnt=5002+net=5003+user=5004' 9002 5002 5003 5004 - 5006 5007 5008 isolated 7 - - 1 - - - -
+    nsurgn_join_by_tab G6 'pid=9000+mnt=5002+net=5003+user=5004' 9000 5002 5003 5004 5005 5006 5007 5008 isolated 7 20 20 1 - - - oldest-process
+  } >"$artifact_file"
+
+  nsurgn_scan_write_visible_artifacts 0 "$artifact_file" "$visible_artifact_file" ||
+    fail 'visible artifact ID assignment failed'
+
+  awk -F '\t' 'NF != 19 { exit 1 } END { exit NR == 5 ? 0 : 1 }' "$visible_artifact_file" ||
+    fail 'expected default visible artifacts to hide host rows'
+  awk -F '\t' '
+    NR == 1 && $1 == "A1" && $2 == "pid=8001+mnt=5002+net=5003+user=5004" { first=1 }
+    NR == 2 && $1 == "A2" && $2 == "pid=9000+mnt=5002+net=5003+user=5004" { second=1 }
+    NR == 3 && $1 == "A3" && $2 == "pid=9001+mnt=5002+net=5003+user=5004" { third=1 }
+    NR == 4 && $1 == "A4" && $2 == "pid=9002+mnt=5002+net=5003+user=5004" { fourth=1 }
+    NR == 5 && $1 == "A5" && $2 == "pid=7001+mnt=5002+net=5003+user=5004" { fifth=1 }
+    END { exit first && second && third && fourth && fifth ? 0 : 1 }
+  ' "$visible_artifact_file" ||
+    fail 'expected score, classification rank, leader PID, group key, and namespace sorting'
+
+  nsurgn_scan_write_visible_artifacts 1 "$artifact_file" "$visible_artifact_file" ||
+    fail 'include-host visible artifact ID assignment failed'
+
+  awk -F '\t' 'NF != 19 { exit 1 } END { exit NR == 6 ? 0 : 1 }' "$visible_artifact_file" ||
+    fail 'expected include-host visible artifacts to retain host rows'
+  awk -F '\t' '
+    NR == 6 && $1 == "A6" && $2 == "pid=5001+mnt=5002+net=5003+user=5004" && $11 == "host" { found=1 }
+    END { exit found ? 0 : 1 }
+  ' "$visible_artifact_file" ||
+    fail 'expected include-host to assign command-scoped ID to host artifact'
+
+  rm -rf "$tmpdir"
+}
+
 restore_live_scan_state() {
   local previous_scan_dir="$1"
   local previous_host_pid="$2"
@@ -893,7 +1022,8 @@ run_stderr_only_status 2 "$NSURGN" ps
 run_stderr_only_status 2 "$NSURGN" ps one two
 run_stderr_only_status 2 "$NSURGN" report one two
 run_stderr_only_status 2 "$NSURGN" map one two
-run_stderr_only_status 1 "$NSURGN" --host-pid "$$" list
+run_success_quiet "$NSURGN" --host-pid "$$" list
+run_stderr_only_status 1 "$NSURGN" --format json --host-pid "$$" list
 run_stderr_only_status 1 "$NSURGN" --host-pid "$$" inspect "$$"
 run_stderr_only_status 1 "$NSURGN" --host-pid "$$" ps "$$"
 run_stderr_only_status 1 "$NSURGN" --host-pid "$$" report
@@ -926,6 +1056,8 @@ run_group_key_contract
 run_artifact_aggregation_contract
 run_artifact_leader_contract
 run_artifact_classification_contract
+run_visible_artifact_contract
+run_list_raw_contract
 run_live_scan_workspace_contract
 run_shellcheck_if_available
 

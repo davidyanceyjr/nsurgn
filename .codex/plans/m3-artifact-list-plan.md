@@ -38,9 +38,11 @@ Current `lib/scan.sh`:
 - populates preliminary `artifact.tsv` rows with internal placeholder IDs, group keys, aggregate namespace fields, namespace-only classification fields, and process counts;
 - populates `artifact.tsv` leader fields and `artifact_process.tsv` leader/member roles using deterministic leader selection;
 - populates namespace-only `classification`, `score`, `runtime_hint`, `cgroup_hint`, and `classification_reason.tsv` rows;
+- can build a command-scoped `visible_artifact.tsv` view with default host hiding, `--include-host`, stable sort order, and public `A*` IDs;
+- renders real default raw `nsurgn list` rows from the command-scoped visible artifact view;
 - records namespace/status/stat limitations.
 
-Scan commands still call `nsurgn_cmd_scaffolded_scan_command`, run the scan, and return not-implemented behavior.
+`inspect`, `ps`, `report`, and `map` still call `nsurgn_cmd_scaffolded_scan_command`, run the scan, and return not-implemented behavior.
 
 ## Slice Status
 
@@ -50,8 +52,8 @@ Scan commands still call `nsurgn_cmd_scaffolded_scan_command`, run the scan, and
 | M3.2 Artifact Namespace Aggregation | Complete | Implemented in `lib/scan.sh`; covered by `run_artifact_aggregation_contract` and live workspace checks; `./test/smoke.sh` passes at commit `275d795`. | None |
 | M3.3 Deterministic Leader Selection | Complete | Implemented in `lib/scan.sh`; covered by `run_artifact_leader_contract`; `./test/smoke.sh` passes. | None |
 | M3.4 Minimal Scoring And Classification | Complete | Implemented in `lib/scan.sh`; covered by `run_artifact_classification_contract`; `./test/smoke.sh` passes. | None |
-| M3.5 Visibility, Sorting, And Artifact IDs | Pending | Not implemented. Public command-scoped `A*` IDs are not assigned. | Start after M3.4 classification and scores are stable. |
-| M3.6 First Real `nsurgn list` Raw Output | Pending | Not implemented. `list` still returns scaffolded not-implemented behavior after scan. | Start after M3.5 visible artifact view exists. |
+| M3.5 Visibility, Sorting, And Artifact IDs | Complete | Implemented in `lib/scan.sh`; covered by `run_visible_artifact_contract`; `./test/smoke.sh` passes. | None |
+| M3.6 First Real `nsurgn list` Raw Output | Complete | Implemented in `lib/commands.sh`; covered by `run_list_raw_contract`; `./test/smoke.sh` passes. | None |
 
 ## Parallelization Notes
 

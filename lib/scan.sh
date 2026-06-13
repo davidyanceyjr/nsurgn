@@ -15,6 +15,7 @@ nsurgn_scan_create_workspace() {
   : >"${NSURGN_SCAN_DIR}/process_mountinfo.tsv"
   : >"${NSURGN_SCAN_DIR}/process_mount_summary.tsv"
   : >"${NSURGN_SCAN_DIR}/artifact.tsv"
+  : >"${NSURGN_SCAN_DIR}/visible_artifact.tsv"
   : >"${NSURGN_SCAN_DIR}/artifact_process.tsv"
   : >"${NSURGN_SCAN_DIR}/classification_reason.tsv"
   : >"${NSURGN_SCAN_DIR}/scan_limitation.tsv"
@@ -551,6 +552,74 @@ nsurgn_scan_add_namespace_diff_score() {
     "${namespace_type}_ns_differs" \
     "$score_delta" \
     "host=${host_namespace_id},artifact=${artifact_namespace_id}" >>"$reason_file"
+}
+
+nsurgn_scan_write_visible_artifacts() {
+  local include_host="${1:-${NSURGN_INCLUDE_HOST:-0}}"
+  local artifact_file="${2:-${NSURGN_SCAN_DIR}/artifact.tsv}"
+  local visible_artifact_file="${3:-${NSURGN_SCAN_DIR}/visible_artifact.tsv}"
+  local tmp_file tab
+
+  tmp_file="${visible_artifact_file}.tmp"
+  tab=$'\t'
+  : >"$visible_artifact_file"
+
+  [ -f "$artifact_file" ] || return 0
+
+  awk -F '\t' -v OFS='\t' -v include_host="$include_host" '
+    function class_rank(classification) {
+      if (classification == "anomalous") return 1
+      if (classification == "container-like") return 2
+      if (classification == "namespace-managed") return 3
+      if (classification == "isolated") return 4
+      if (classification == "host") return 5
+      return 9
+    }
+    function namespace_sort_value(value) {
+      if (value == "-") return "1:"
+      return "0:" value
+    }
+    NF == 19 {
+      if (!include_host && $11 == "host") next
+
+      score = $12
+      if (score !~ /^[0-9]+$/) score = 0
+      leader_missing = 1
+      leader_sort = 0
+      if ($13 ~ /^[0-9]+$/) {
+        leader_missing = 0
+        leader_sort = $13
+      }
+
+      print -score,
+        class_rank($11),
+        leader_missing,
+        sprintf("%020d", leader_sort),
+        $2,
+        namespace_sort_value($3),
+        namespace_sort_value($4),
+        namespace_sort_value($5),
+        namespace_sort_value($6),
+        namespace_sort_value($7),
+        namespace_sort_value($8),
+        namespace_sort_value($9),
+        namespace_sort_value($10),
+        $0
+    }
+  ' "$artifact_file" |
+    LC_ALL=C sort -t "$tab" -k1,1n -k2,2n -k3,3n -k4,4 -k5,5 -k6,6 -k7,7 -k8,8 -k9,9 -k10,10 -k11,11 -k12,12 -k13,13 |
+    cut -f 14- |
+    awk -F '\t' -v OFS='\t' '
+      NF == 19 {
+        $1 = "A" NR
+        print
+      }
+    ' >"$tmp_file" || {
+      rm -f -- "$tmp_file"
+      return 1
+    }
+
+  mv -- "$tmp_file" "$visible_artifact_file"
 }
 
 nsurgn_scan_build_artifacts() {

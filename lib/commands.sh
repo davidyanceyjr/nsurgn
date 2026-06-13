@@ -5,7 +5,7 @@ nsurgn_dispatch() {
     help) nsurgn_cmd_help ;;
     version) nsurgn_cmd_version ;;
     doctor) nsurgn_cmd_doctor ;;
-    list) nsurgn_cmd_scaffolded_scan_command list ;;
+    list) nsurgn_cmd_list ;;
     inspect) nsurgn_cmd_scaffolded_scan_command inspect ;;
     ps) nsurgn_cmd_scaffolded_scan_command ps ;;
     report) nsurgn_cmd_scaffolded_scan_command report ;;
@@ -82,6 +82,24 @@ nsurgn_cmd_doctor() {
   nsurgn_expect_arg_count doctor 0 0 || return "$?"
 
   nsurgn_doctor
+}
+
+nsurgn_cmd_list() {
+  nsurgn_expect_arg_count list 0 0 || return "$?"
+
+  if [ "$NSURGN_FORMAT" != 'raw' ]; then
+    nsurgn_not_implemented "list --format ${NSURGN_FORMAT}"
+    return "$?"
+  fi
+
+  nsurgn_scan_run || return "$?"
+  nsurgn_scan_write_visible_artifacts || return "$?"
+
+  awk -F '\t' -v OFS='\t' '
+    NF == 19 {
+      print $1, $11, $12, $13, $14, $15, $16, $18
+    }
+  ' "${NSURGN_SCAN_DIR}/visible_artifact.tsv"
 }
 
 nsurgn_cmd_scaffolded_scan_command() {
