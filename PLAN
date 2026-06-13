@@ -35,6 +35,8 @@ Goal: make the non-scan command surface stable before discovery work starts.
 
 ### M1.1 CLI Contract Hardening
 
+Status: completed in commit `89bcf25` (`m1: harden cli and doctor contracts`).
+
 Scope:
 
 - `help`
@@ -62,6 +64,8 @@ Acceptance:
 
 ### M1.2 Doctor Contract
 
+Status: completed in commit `89bcf25` (`m1: harden cli and doctor contracts`).
+
 Scope: align `doctor` with `SPEC.md` sections 13.6 and 16.3.
 
 Implementation slices:
@@ -83,6 +87,8 @@ Acceptance:
 
 ### M1.3 Output Utility Baseline
 
+Status: completed in working tree after commit `89bcf25`.
+
 Scope: shared utilities needed before scan output exists.
 
 Implementation slices:
@@ -98,6 +104,8 @@ Acceptance:
 - M1 command output is stable enough for automated verification.
 
 ### M1.4 Test Harness
+
+Status: completed in working tree after commit `89bcf25`.
 
 Scope: `test/smoke.sh` and any small test helpers needed for M1.
 

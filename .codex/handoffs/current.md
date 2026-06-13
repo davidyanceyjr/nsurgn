@@ -1,15 +1,15 @@
 # Handoff Brief
 
 ## Objective
-Resume implementation planning/execution for `nsurgn` M1/M2 using `PLAN` as the next-session scope.
+Resume `nsurgn` M1/M2 implementation using `PLAN` as the scope guard, without repeating completed M1 work.
 
 ## Scope And Non-Goals
-Scope is limited to the implementation slices documented in `PLAN`:
+Scope remains limited to the implementation slices documented in `PLAN`:
 
 - M1: help, version, doctor, and test harness.
 - M2: PID validation and namespace reading.
 
-Non-goals for the next session:
+Non-goals remain:
 
 - Do not implement artifact grouping before M3.
 - Do not implement artifact IDs, leader selection, scoring, classification, or real `list` output before M3.
@@ -17,20 +17,26 @@ Non-goals for the next session:
 - Do not add cgroup grouping, mountinfo evidence, root comparison, or runtime hints in M2 except as missing future fields.
 
 ## Current State
-Source facts from the current session:
+Source facts:
 
-- `SPEC.md` defines the v1.0 product behavior, milestones, CLI contract, output guarantees, error contract, and acceptance criteria.
-- `DESIGN.md` defines the Bash implementation architecture, internal TSV workspace records, command flow, renderer contracts, structured output schemas, and fixture planning.
-- `PLAN` now exists and is the intended next-session scope for M1/M2 implementation.
-- Current scaffold includes `bin/nsurgn`, `lib/cli.sh`, `lib/commands.sh`, `lib/doctor.sh`, `lib/errors.sh`, `lib/scan.sh`, `lib/util.sh`, and `test/smoke.sh`.
-- The scaffold already has CLI parsing, help/version/doctor dispatch, scan workspace setup, and not-implemented scan commands.
-- `lib/scan.sh` already creates the intended internal TSV workspace files, including `process.tsv`, `artifact.tsv`, `artifact_process.tsv`, `classification_reason.tsv`, and `scan_limitation.tsv`.
+- `PLAN` is the current M1/M2 implementation slice document.
+- `SPEC.md` remains the source of truth for v1.0 product behavior, CLI contract, output guarantees, error contract, and acceptance criteria.
+- Commit `89bcf25` (`m1: harden cli and doctor contracts`) was created and pushed to `origin/main`.
+- Commit `89bcf25` changed `lib/doctor.sh` and `test/smoke.sh`.
+- M1.1 CLI Contract Hardening is marked completed in `PLAN` with commit evidence.
+- M1.2 Doctor Contract is marked completed in `PLAN` with commit evidence.
+- M1.3 Output Utility Baseline is marked completed in `PLAN` with working-tree evidence.
+- M1.4 Test Harness is marked completed in `PLAN` with working-tree evidence.
+- `PLAN`, `test/smoke.sh`, and `.codex/handoffs/current.md` are modified after the pushed commit to record progress, add M1.3/M1.4 coverage, and refresh this handoff.
 
-Worktree state observed before this handoff:
+Completed implementation claims from the prior session:
 
-- `.codex/handoffs/current.md` modified by this handoff update.
-- `PLAN` is new and untracked.
-- `DESIGN.md`, `lib/commands.sh`, `lib/util.sh`, and `test/smoke.sh` were already modified in the worktree; those changes were not inspected or changed as part of this handoff update.
+- M1.1 was reported CODE COMPLETE after hardening smoke coverage for help/version stdout, usage-error stderr/exit behavior, arity checks, invalid options, and scaffolded scan command diagnostics.
+- M1.2 was reported CODE COMPLETE after tightening `doctor` checks for `/proc`, `/proc/self/ns` symlink readability, required utilities, root/non-root reporting, process visibility, stdout rows, stderr warning/error diagnostics, and unsupported-platform exit behavior.
+
+Open implementation slices:
+
+- M2.1 Proc PID Enumeration.
 
 ## Established Decisions And Traceability
 Traceability:
@@ -46,32 +52,39 @@ Established boundary:
 - M2 should stop before grouping. M3 should begin with group key construction, artifact-level namespace aggregation, deterministic leader selection, scoring/classification minimum, and first real `nsurgn list` raw output.
 
 ## Changed Artifacts
-Changed in this session:
+Committed and pushed:
 
-- `PLAN`: added M1/M2 implementation plan.
-- `.codex/handoffs/current.md`: replaced with this handoff brief.
+- `lib/doctor.sh`: completed M1.2 doctor contract implementation.
+- `test/smoke.sh`: added M1.1/M1.2 contract coverage.
 
-Existing modified files not changed by this handoff update:
+Modified after push:
 
-- `DESIGN.md`
-- `lib/commands.sh`
-- `lib/util.sh`
-- `test/smoke.sh`
+- `PLAN`: added completion status lines for M1.1, M1.2, M1.3, and M1.4.
+- `test/smoke.sh`: added focused M1.3 TSV escaping and physical-line coverage, tightened M1 usage-error checks to assert stderr-only diagnostics, and added optional ShellCheck execution when installed.
+- `.codex/handoffs/current.md`: refreshed handoff state.
 
 ## Checks And Evidence
-Read during this session:
+Validation performed before commit `89bcf25`:
 
-- `PLAN`
-- `SPEC.md`
-- `DESIGN.md`
-- `.codex/skills/06-document/SKILL.md`
-- `.codex/skills/12-handoff/SKILL.md`
+- `test/smoke.sh` passed.
+- `bash -n lib/doctor.sh test/smoke.sh` passed.
+- `shellcheck -x lib/doctor.sh test/smoke.sh` passed.
 
-Commands/evidence:
+Validation performed after M1.3 working-tree changes:
 
-- `git status --short` showed existing modified files plus new `PLAN`.
-- No tests were run after creating `PLAN`.
-- No production code was changed by this handoff request.
+- `test/smoke.sh` passed.
+- `bash -n lib/util.sh test/smoke.sh` passed.
+- `shellcheck -x lib/util.sh test/smoke.sh` passed.
+
+Validation performed after M1.4 working-tree changes:
+
+- `test/smoke.sh` passed.
+- `bash -n bin/nsurgn lib/cli.sh lib/commands.sh lib/doctor.sh lib/errors.sh lib/scan.sh lib/util.sh test/smoke.sh` passed.
+- `git diff --check` passed.
+
+Git evidence:
+
+- `89bcf25 m1: harden cli and doctor contracts` is on `main` and was pushed to `origin/main`.
 
 ## Risks, Blockers, And Open Questions
 Open questions carried in `PLAN`:
@@ -85,7 +98,7 @@ Known risk:
 - M2 can expand quickly if cgroup, mountinfo, root, exe, renderer, grouping, or classification work is pulled in early. Keep M2 focused on PID enumeration, host profile reading, namespace reading, minimal process metadata, and internal limitations.
 
 ## Immediate Next Action And Owner
-Owner: Unknown. Implement the first M1 slice from `PLAN`: CLI contract hardening for help/version/doctor/global-option usage behavior.
+Owner: Unknown. Implement M2.1 Proc PID Enumeration from `PLAN`.
 
 ## Resume Notes
-Before editing, re-check `git status --short` and inspect the existing modified files so user or prior-session changes are preserved. Use `PLAN` as the scope guard for next work.
+Before further implementation, check `git status --short`; `PLAN`, `test/smoke.sh`, and `.codex/handoffs/current.md` contain post-`89bcf25` working-tree changes. Do not repeat M1 unless new requirements or regressions are found.
