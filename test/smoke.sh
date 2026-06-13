@@ -184,6 +184,14 @@ run_namespace_reader_contract() {
     rm -rf "$tmpdir"
     fail 'namespace ID parser accepted mismatched type'
   fi
+  if nsurgn_scan_parse_namespace_id pid 'pid:[not-a-number]' >/dev/null; then
+    rm -rf "$tmpdir"
+    fail 'namespace ID parser accepted non-numeric ID'
+  fi
+  if nsurgn_scan_parse_namespace_id pid 'pid:4026531836' >/dev/null; then
+    rm -rf "$tmpdir"
+    fail 'namespace ID parser accepted malformed namespace link'
+  fi
 
   output="$(nsurgn_scan_namespace_profile_fields "$tmpdir" 42)" || {
     rm -rf "$tmpdir"

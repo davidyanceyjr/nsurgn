@@ -251,6 +251,8 @@ Acceptance:
 
 ### M2.7 Tests
 
+Status: completed in working tree after commit `10c162f`.
+
 Scope: parsing and live-scan basics.
 
 Implementation slices:
