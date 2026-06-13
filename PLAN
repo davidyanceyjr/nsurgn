@@ -87,7 +87,7 @@ Acceptance:
 
 ### M1.3 Output Utility Baseline
 
-Status: completed in working tree after commit `89bcf25`.
+Status: completed in commit `67e2e07` (`dev: track m1 test harness completion`).
 
 Scope: shared utilities needed before scan output exists.
 
@@ -105,7 +105,7 @@ Acceptance:
 
 ### M1.4 Test Harness
 
-Status: completed in working tree after commit `89bcf25`.
+Status: completed in commit `67e2e07` (`dev: track m1 test harness completion`).
 
 Scope: `test/smoke.sh` and any small test helpers needed for M1.
 
@@ -127,6 +127,8 @@ Goal: build the first real scan layer: enumerate visible PIDs, read host and pro
 
 ### M2.1 Proc PID Enumeration
 
+Status: completed in working tree after commit `67e2e07`.
+
 Scope: visible numeric `/proc/<pid>` entries.
 
 Implementation slices:
@@ -142,6 +144,8 @@ Acceptance:
 - Vanished non-target PIDs do not make broad scan setup fail.
 
 ### M2.2 Namespace Link Reader
+
+Status: completed in working tree after commit `67e2e07`.
 
 Scope:
 
@@ -170,6 +174,8 @@ Acceptance:
 
 ### M2.3 Host Profile Reader
 
+Status: completed in working tree after commit `67e2e07`.
+
 Scope: host namespace baseline from `/proc/$NSURGN_HOST_PID/ns/*`.
 
 Implementation slices:
@@ -189,6 +195,8 @@ Acceptance:
 - Unsupported procfs or namespace behavior exits `8`.
 
 ### M2.4 Minimal Process Metadata
+
+Status: completed in working tree after commit `67e2e07`.
 
 Scope: enough process data to support later grouping and leader selection.
 
