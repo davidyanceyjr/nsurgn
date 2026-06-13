@@ -395,6 +395,244 @@ nsurgn_scan_read_process_namespaces() {
   done <"${NSURGN_SCAN_DIR}/visible_pids.tsv" >"${NSURGN_SCAN_DIR}/process.tsv"
 }
 
+nsurgn_scan_group_namespace_types() {
+  local group_mode="$1"
+
+  case "$group_mode" in
+    profile) printf '%s\n' 'pid mnt net user' ;;
+    strict) printf '%s\n' "$NSURGN_NAMESPACE_TYPES" ;;
+    pid|mnt|net) printf '%s\n' "$group_mode" ;;
+    cgroup) return 1 ;;
+    *) return 1 ;;
+  esac
+}
+
+nsurgn_scan_namespace_group_component() {
+  local namespace_type="$1"
+  local host_pid="$2"
+  local namespace_id="$3"
+
+  if [ "$namespace_id" = '-' ]; then
+    printf '%s=unknown:%s\n' "$namespace_type" "$host_pid"
+  else
+    printf '%s=%s\n' "$namespace_type" "$namespace_id"
+  fi
+}
+
+nsurgn_scan_process_namespace_group_key() {
+  local group_mode="$1"
+  local process_row="$2"
+  local host_pid
+  local pid_ns mnt_ns net_ns user_ns uts_ns ipc_ns cgroup_ns time_ns
+  local namespace_type namespace_id component
+  local first=1
+  local _
+
+  IFS=$'\t' read -r \
+    host_pid \
+    _ \
+    _ \
+    _ \
+    _ \
+    _ \
+    _ \
+    pid_ns \
+    mnt_ns \
+    net_ns \
+    user_ns \
+    uts_ns \
+    ipc_ns \
+    cgroup_ns \
+    time_ns \
+    _ <<<"$process_row"
+
+  [ -n "${host_pid:-}" ] || return 1
+  nsurgn_is_uint "$host_pid" || return 1
+
+  for namespace_type in $(nsurgn_scan_group_namespace_types "$group_mode"); do
+    case "$namespace_type" in
+      pid) namespace_id="$pid_ns" ;;
+      mnt) namespace_id="$mnt_ns" ;;
+      net) namespace_id="$net_ns" ;;
+      user) namespace_id="$user_ns" ;;
+      uts) namespace_id="$uts_ns" ;;
+      ipc) namespace_id="$ipc_ns" ;;
+      cgroup) namespace_id="$cgroup_ns" ;;
+      time) namespace_id="$time_ns" ;;
+      *) return 1 ;;
+    esac
+
+    component="$(nsurgn_scan_namespace_group_component "$namespace_type" "$host_pid" "$namespace_id")" || return "$?"
+    if [ "$first" -eq 0 ]; then
+      printf '+'
+    fi
+    printf '%s' "$component"
+    first=0
+  done
+  printf '\n'
+}
+
+nsurgn_scan_update_namespace_aggregate() {
+  local variable_name="$1"
+  local process_value="$2"
+  local current_value="${!variable_name}"
+  local next_value
+
+  [ "$process_value" != '-' ] || return 0
+
+  case "$current_value" in
+    ''|'-') next_value="$process_value" ;;
+    "$process_value") next_value="$current_value" ;;
+    mixed) next_value='mixed' ;;
+    *) next_value='mixed' ;;
+  esac
+
+  printf -v "$variable_name" '%s' "$next_value"
+}
+
+nsurgn_scan_build_artifacts() {
+  local group_mode="${1:-${NSURGN_GROUP:-profile}}"
+  local process_file="${2:-${NSURGN_SCAN_DIR}/process.tsv}"
+  local artifact_file="${3:-${NSURGN_SCAN_DIR}/artifact.tsv}"
+  local artifact_process_file="${4:-${NSURGN_SCAN_DIR}/artifact_process.tsv}"
+  local process_row group_key host_pid
+  local pid_ns mnt_ns net_ns user_ns uts_ns ipc_ns cgroup_ns time_ns
+  local artifact_index artifact_id member_pid sorted_keys
+  local namespace_type namespace_id group_component group_namespace_types
+  local _
+  local keys=()
+  local -A seen=()
+  local -A process_count=()
+  local -A member_pids=()
+  local -A aggregate_pid_ns=()
+  local -A aggregate_mnt_ns=()
+  local -A aggregate_net_ns=()
+  local -A aggregate_user_ns=()
+  local -A aggregate_uts_ns=()
+  local -A aggregate_ipc_ns=()
+  local -A aggregate_cgroup_ns=()
+  local -A aggregate_time_ns=()
+
+  [ "$group_mode" != 'cgroup' ] || return 1
+  group_namespace_types="$(nsurgn_scan_group_namespace_types "$group_mode")" || return "$?"
+
+  while IFS= read -r process_row; do
+    [ -n "$process_row" ] || continue
+    IFS=$'\t' read -r \
+      host_pid \
+      _ \
+      _ \
+      _ \
+      _ \
+      _ \
+      _ \
+      pid_ns \
+      mnt_ns \
+      net_ns \
+      user_ns \
+      uts_ns \
+      ipc_ns \
+      cgroup_ns \
+      time_ns \
+      _ <<<"$process_row"
+
+    group_key=''
+    for namespace_type in $group_namespace_types; do
+      case "$namespace_type" in
+        pid) namespace_id="$pid_ns" ;;
+        mnt) namespace_id="$mnt_ns" ;;
+        net) namespace_id="$net_ns" ;;
+        user) namespace_id="$user_ns" ;;
+        uts) namespace_id="$uts_ns" ;;
+        ipc) namespace_id="$ipc_ns" ;;
+        cgroup) namespace_id="$cgroup_ns" ;;
+        time) namespace_id="$time_ns" ;;
+        *) return 1 ;;
+      esac
+
+      if [ "$namespace_id" = '-' ]; then
+        group_component="${namespace_type}=unknown:${host_pid}"
+      else
+        group_component="${namespace_type}=${namespace_id}"
+      fi
+
+      if [ -n "$group_key" ]; then
+        group_key+="+${group_component}"
+      else
+        group_key="$group_component"
+      fi
+    done
+
+    if [ -z "${seen[$group_key]+x}" ]; then
+      seen[$group_key]=1
+      keys+=("$group_key")
+      process_count[$group_key]=0
+      member_pids[$group_key]=''
+      aggregate_pid_ns[$group_key]='-'
+      aggregate_mnt_ns[$group_key]='-'
+      aggregate_net_ns[$group_key]='-'
+      aggregate_user_ns[$group_key]='-'
+      aggregate_uts_ns[$group_key]='-'
+      aggregate_ipc_ns[$group_key]='-'
+      aggregate_cgroup_ns[$group_key]='-'
+      aggregate_time_ns[$group_key]='-'
+    fi
+
+    process_count[$group_key]=$((process_count[$group_key] + 1))
+    member_pids[$group_key]+="${host_pid}"$'\n'
+    nsurgn_scan_update_namespace_aggregate "aggregate_pid_ns[$group_key]" "$pid_ns"
+    nsurgn_scan_update_namespace_aggregate "aggregate_mnt_ns[$group_key]" "$mnt_ns"
+    nsurgn_scan_update_namespace_aggregate "aggregate_net_ns[$group_key]" "$net_ns"
+    nsurgn_scan_update_namespace_aggregate "aggregate_user_ns[$group_key]" "$user_ns"
+    nsurgn_scan_update_namespace_aggregate "aggregate_uts_ns[$group_key]" "$uts_ns"
+    nsurgn_scan_update_namespace_aggregate "aggregate_ipc_ns[$group_key]" "$ipc_ns"
+    nsurgn_scan_update_namespace_aggregate "aggregate_cgroup_ns[$group_key]" "$cgroup_ns"
+    nsurgn_scan_update_namespace_aggregate "aggregate_time_ns[$group_key]" "$time_ns"
+  done <"$process_file"
+
+  : >"$artifact_file"
+  : >"$artifact_process_file"
+
+  [ "${#keys[@]}" -gt 0 ] || return 0
+
+  sorted_keys="$(printf '%s\n' "${keys[@]}" | LC_ALL=C sort)"
+  artifact_index=1
+  while IFS= read -r group_key; do
+    [ -n "$group_key" ] || continue
+    artifact_id="G${artifact_index}"
+
+    nsurgn_join_by_tab \
+      "$artifact_id" \
+      "$group_key" \
+      "${aggregate_pid_ns[$group_key]}" \
+      "${aggregate_mnt_ns[$group_key]}" \
+      "${aggregate_net_ns[$group_key]}" \
+      "${aggregate_user_ns[$group_key]}" \
+      "${aggregate_uts_ns[$group_key]}" \
+      "${aggregate_ipc_ns[$group_key]}" \
+      "${aggregate_cgroup_ns[$group_key]}" \
+      "${aggregate_time_ns[$group_key]}" \
+      - \
+      - \
+      - \
+      - \
+      "${process_count[$group_key]}" \
+      - \
+      - \
+      - \
+      - >>"$artifact_file"
+
+    while IFS= read -r member_pid; do
+      [ -n "$member_pid" ] || continue
+      nsurgn_join_by_tab "$artifact_id" "$member_pid" member >>"$artifact_process_file"
+    done < <(printf '%s' "${member_pids[$group_key]}" | sort -n)
+
+    artifact_index=$((artifact_index + 1))
+  done <<<"$sorted_keys"
+
+  return 0
+}
+
 nsurgn_scan_run() {
   nsurgn_scan_require_proc || return "$?"
   nsurgn_scan_create_workspace || return "$?"
@@ -406,7 +644,11 @@ nsurgn_scan_run() {
   nsurgn_scan_enumerate_pids /proc >"${NSURGN_SCAN_DIR}/visible_pids.tsv"
   nsurgn_scan_read_host_profile /proc "$NSURGN_HOST_PID" || return "$?"
   nsurgn_scan_read_process_namespaces /proc
+  if [ "${NSURGN_GROUP:-profile}" != 'cgroup' ]; then
+    nsurgn_scan_build_artifacts "${NSURGN_GROUP:-profile}"
+  fi
 
-  # Discovery, grouping, leader selection, scoring, and classification are added
-  # behind this shared workspace so commands cannot drift into ad hoc scraping.
+  # Leader selection, scoring, and classification are added behind this shared
+  # workspace so commands cannot drift into ad hoc scraping.
+  return 0
 }

@@ -36,6 +36,32 @@ M2 is complete through commit `10c162f`. `lib/scan.sh` currently:
 
 Scan commands still call `nsurgn_cmd_scaffolded_scan_command`, run the scan, and return not-implemented behavior. `artifact.tsv`, `artifact_process.tsv`, and `classification_reason.tsv` are created but not populated.
 
+## Parallelization Notes
+
+M3 implementation is mostly sequential because each slice establishes data that later slices consume:
+
+- M3.2 depends on M3.1 group keys.
+- M3.3 depends on M3.2 artifact membership.
+- M3.4 depends on M3.2 artifact namespace aggregation and uses the same nested PID init rule as M3.3.
+- M3.5 depends on M3.4 classification and scores.
+- M3.6 depends on M3.1-M3.5 and should stay a thin integration slice.
+
+Use sub-agents for bounded work that can return compact findings without changing shared state:
+
+- Extract exact grouping, aggregation, leader, scoring, sorting, or raw-rendering contract details from `SPEC.md` and `DESIGN.md`.
+- Inspect existing helper patterns in `lib/scan.sh`, `lib/commands.sh`, `lib/util.sh`, and `test/smoke.sh`.
+- Draft or review fixture cases for a single M3 slice.
+- Review one completed slice against its acceptance criteria and validation notes.
+
+Parallel implementation is allowed only when file ownership and data contracts are stable:
+
+- M3.1 implementation may run alongside a read-only contract extraction or test-fixture review.
+- M3.2 tests may be drafted while M3.1 is underway, but should not be finalized until the group-key helper contract is stable.
+- M3.3 and M3.4 test cases may be drafted in parallel after the M3.2 artifact row shape is stable.
+- M3.6 renderer expectations may be checked against `DESIGN.md` while M3.5 is underway.
+
+Keep each sub-agent task narrow: define the objective, source files, scope boundary, expected compact output, and stop condition. The main thread owns integration, final edits, validation, and handoff updates.
+
 ## M3.1 Group Key Construction
 
 Goal: group `process.tsv` rows into deterministic artifact buckets for namespace grouping modes that can be supported from M2 data.

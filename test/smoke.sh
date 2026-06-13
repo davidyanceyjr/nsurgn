@@ -401,6 +401,167 @@ run_process_limitation_contract() {
   NSURGN_SCAN_DIR=''
 }
 
+make_process_row_for_group_key() {
+  local host_pid="$1"
+  local pid_ns="$2"
+  local mnt_ns="$3"
+  local net_ns="$4"
+  local user_ns="$5"
+  local uts_ns="$6"
+  local ipc_ns="$7"
+  local cgroup_ns="$8"
+  local time_ns="$9"
+
+  nsurgn_join_by_tab \
+    "$host_pid" \
+    1 \
+    0 \
+    - \
+    S \
+    100 \
+    "$host_pid" \
+    "$pid_ns" \
+    "$mnt_ns" \
+    "$net_ns" \
+    "$user_ns" \
+    "$uts_ns" \
+    "$ipc_ns" \
+    "$cgroup_ns" \
+    "$time_ns" \
+    - \
+    - \
+    - \
+    - \
+    - \
+    - \
+    - \
+    ok \
+    ok \
+    ok \
+    ok \
+    - \
+    - \
+    - \
+    - \
+    -
+}
+
+run_group_key_contract() {
+  local row_a row_b key_a key_b expected
+
+  expected='pid mnt net user'
+  [ "$(nsurgn_scan_group_namespace_types profile)" = "$expected" ] ||
+    fail 'unexpected profile namespace grouping order'
+  expected='pid mnt net user uts ipc cgroup time'
+  [ "$(nsurgn_scan_group_namespace_types strict)" = "$expected" ] ||
+    fail 'unexpected strict namespace grouping order'
+  [ "$(nsurgn_scan_group_namespace_types mnt)" = 'mnt' ] ||
+    fail 'unexpected mount namespace grouping order'
+  if nsurgn_scan_group_namespace_types cgroup >/dev/null; then
+    fail 'cgroup namespace grouping should not be available before cgroup summaries'
+  fi
+
+  row_a="$(make_process_row_for_group_key 42 1001 1002 1003 1004 1005 1006 1007 1008)"
+  key_a="$(nsurgn_scan_process_namespace_group_key profile "$row_a")" ||
+    fail 'profile group key construction failed'
+  [ "$key_a" = 'pid=1001+mnt=1002+net=1003+user=1004' ] ||
+    fail "unexpected profile group key: ${key_a}"
+
+  key_a="$(nsurgn_scan_process_namespace_group_key strict "$row_a")" ||
+    fail 'strict group key construction failed'
+  [ "$key_a" = 'pid=1001+mnt=1002+net=1003+user=1004+uts=1005+ipc=1006+cgroup=1007+time=1008' ] ||
+    fail "unexpected strict group key: ${key_a}"
+
+  row_a="$(make_process_row_for_group_key 42 - 1002 1003 1004 1005 1006 1007 1008)"
+  row_b="$(make_process_row_for_group_key 43 - 1002 1003 1004 1005 1006 1007 1008)"
+  key_a="$(nsurgn_scan_process_namespace_group_key profile "$row_a")" ||
+    fail 'missing grouped namespace key construction failed'
+  key_b="$(nsurgn_scan_process_namespace_group_key profile "$row_b")" ||
+    fail 'second missing grouped namespace key construction failed'
+  [ "$key_a" = 'pid=unknown:42+mnt=1002+net=1003+user=1004' ] ||
+    fail "unexpected process-distinct unknown group key: ${key_a}"
+  [ "$key_b" = 'pid=unknown:43+mnt=1002+net=1003+user=1004' ] ||
+    fail "unexpected second process-distinct unknown group key: ${key_b}"
+  [ "$key_a" != "$key_b" ] ||
+    fail 'missing grouped namespace IDs coalesced across host PIDs'
+
+  row_a="$(make_process_row_for_group_key 42 1001 - 1003 1004 1005 1006 1007 1008)"
+  row_b="$(make_process_row_for_group_key 43 1001 1002 1003 1004 1005 1006 1007 1008)"
+  key_a="$(nsurgn_scan_process_namespace_group_key pid "$row_a")" ||
+    fail 'missing ungrouped namespace key construction failed'
+  key_b="$(nsurgn_scan_process_namespace_group_key pid "$row_b")" ||
+    fail 'second missing ungrouped namespace key construction failed'
+  [ "$key_a" = 'pid=1001' ] ||
+    fail "unexpected PID group key with missing ungrouped namespace: ${key_a}"
+  [ "$key_a" = "$key_b" ] ||
+    fail 'missing ungrouped namespace changed group identity'
+}
+
+run_artifact_aggregation_contract() {
+  local tmpdir process_file artifact_file artifact_process_file
+
+  tmpdir="$(mktemp -d)"
+  process_file="${tmpdir}/process.tsv"
+  artifact_file="${tmpdir}/artifact.tsv"
+  artifact_process_file="${tmpdir}/artifact_process.tsv"
+
+  {
+    make_process_row_for_group_key 42 1001 1002 1003 1004 2001 3001 - -
+    make_process_row_for_group_key 43 1001 1002 1003 1004 2002 3001 - 4001
+    make_process_row_for_group_key 44 9001 9002 9003 9004 9005 9006 9007 9008
+    make_process_row_for_group_key 45 - 1002 1003 1004 - - - -
+  } >"$process_file"
+
+  nsurgn_scan_build_artifacts profile "$process_file" "$artifact_file" "$artifact_process_file" ||
+    fail 'artifact aggregation failed'
+
+  awk -F '\t' 'NF != 19 { exit 1 } END { exit NR == 3 ? 0 : 1 }' "$artifact_file" ||
+    fail 'expected three normalized artifact rows'
+  awk -F '\t' 'NF != 3 { exit 1 } END { exit NR == 4 ? 0 : 1 }' "$artifact_process_file" ||
+    fail 'expected four normalized artifact process rows'
+
+  awk -F '\t' '
+    $2 == "pid=1001+mnt=1002+net=1003+user=1004" &&
+      $3 == "1001" &&
+      $4 == "1002" &&
+      $5 == "1003" &&
+      $6 == "1004" &&
+      $7 == "mixed" &&
+      $8 == "3001" &&
+      $9 == "-" &&
+      $10 == "4001" &&
+      $15 == "2" { found=1 }
+    END { exit found ? 0 : 1 }
+  ' "$artifact_file" ||
+    fail 'expected single, mixed, and missing namespace aggregation values'
+
+  awk -F '\t' '
+    $2 == "pid=unknown:45+mnt=1002+net=1003+user=1004" &&
+      $3 == "-" &&
+      $4 == "1002" &&
+      $5 == "1003" &&
+      $6 == "1004" &&
+      $7 == "-" &&
+      $8 == "-" &&
+      $9 == "-" &&
+      $10 == "-" &&
+      $15 == "1" { found=1 }
+    END { exit found ? 0 : 1 }
+  ' "$artifact_file" ||
+    fail 'expected internal unknown group key without public unknown namespace values'
+
+  awk -F '\t' '
+    $2 == "42" && $3 == "member" { p42=1 }
+    $2 == "43" && $3 == "member" { p43=1 }
+    $2 == "44" && $3 == "member" { p44=1 }
+    $2 == "45" && $3 == "member" { p45=1 }
+    END { exit p42 && p43 && p44 && p45 ? 0 : 1 }
+  ' "$artifact_process_file" ||
+    fail 'expected complete artifact membership with placeholder roles'
+
+  rm -rf "$tmpdir"
+}
+
 restore_live_scan_state() {
   local previous_scan_dir="$1"
   local previous_host_pid="$2"
@@ -452,6 +613,10 @@ run_live_scan_workspace_contract() {
     fail_live_scan_workspace_contract 'expected host profile row' "$previous_scan_dir" "$previous_host_pid" "$previous_host_pid_was_set"
   [ -s "${scan_dir}/process.tsv" ] ||
     fail_live_scan_workspace_contract 'expected process namespace rows' "$previous_scan_dir" "$previous_host_pid" "$previous_host_pid_was_set"
+  [ -s "${scan_dir}/artifact.tsv" ] ||
+    fail_live_scan_workspace_contract 'expected artifact rows' "$previous_scan_dir" "$previous_host_pid" "$previous_host_pid_was_set"
+  [ -s "${scan_dir}/artifact_process.tsv" ] ||
+    fail_live_scan_workspace_contract 'expected artifact process rows' "$previous_scan_dir" "$previous_host_pid" "$previous_host_pid_was_set"
 
   if ! awk 'NF != 1 || $1 !~ /^[0-9]+$/ { exit 1 }' "${scan_dir}/visible_pids.tsv"; then
     fail_live_scan_workspace_contract 'visible PID workspace rows must be numeric' "$previous_scan_dir" "$previous_host_pid" "$previous_host_pid_was_set"
@@ -470,6 +635,12 @@ run_live_scan_workspace_contract() {
 
   if ! awk -F '\t' 'NF != 31 { exit 1 } END { exit NR > 0 ? 0 : 1 }' "${scan_dir}/process.tsv"; then
     fail_live_scan_workspace_contract 'expected normalized process workspace rows' "$previous_scan_dir" "$previous_host_pid" "$previous_host_pid_was_set"
+  fi
+  if ! awk -F '\t' 'NF != 19 { exit 1 } END { exit NR > 0 ? 0 : 1 }' "${scan_dir}/artifact.tsv"; then
+    fail_live_scan_workspace_contract 'expected normalized artifact workspace rows' "$previous_scan_dir" "$previous_host_pid" "$previous_host_pid_was_set"
+  fi
+  if ! awk -F '\t' 'NF != 3 { exit 1 } END { exit NR > 0 ? 0 : 1 }' "${scan_dir}/artifact_process.tsv"; then
+    fail_live_scan_workspace_contract 'expected normalized artifact process workspace rows' "$previous_scan_dir" "$previous_host_pid" "$previous_host_pid_was_set"
   fi
 
   nsurgn_scan_cleanup
@@ -534,6 +705,8 @@ run_pid_enumeration_contract
 run_namespace_reader_contract
 run_host_profile_reader_contract
 run_process_limitation_contract
+run_group_key_contract
+run_artifact_aggregation_contract
 run_live_scan_workspace_contract
 run_shellcheck_if_available
 
