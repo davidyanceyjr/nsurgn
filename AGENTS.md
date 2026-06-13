@@ -79,7 +79,12 @@ When creating a handoff for context clearing, interruption, or session pause, wr
 
 This file is a resumable working note, not durable project history. It may be overwritten whenever a newer handoff state is created.
 
-When resuming from `.codex/handoffs/current.md`, treat it as a context shortcut only. Verify current truth from the working tree, `git diff`, recent commits, tests, issues, PRs, and any referenced artifacts before acting.
+Track scratchpad freshness with a top-level `Handoff Status: active` or `Handoff Status: stale` marker.
+
+- When writing a new `.codex/handoffs/current.md`, set `Handoff Status: active` after the file reflects the completed handoff state.
+- When resuming or continuing work from `.codex/handoffs/current.md`, first treat the handoff as a context shortcut only. Verify current truth from the working tree, `git diff`, recent commits, tests, issues, PRs, and any referenced artifacts before acting.
+- After continuing from `.codex/handoffs/current.md`, mark that same file `Handoff Status: stale` so future agents do not treat it as the latest active transfer state.
+- If a stale handoff is still useful, read it only as historical context and re-verify every claim before using it.
 
 If a durable historical handoff is explicitly needed, write a timestamped file such as `.codex/handoffs/YYYY-MM-DD-topic.md`.
 
