@@ -1,37 +1,28 @@
 # Handoff Brief
 
 ## Objective
-Resume `nsurgn` M1/M2 implementation from the next open slice after M2.5.
+Continue M3 artifact discovery work after creating the scoped M3 implementation plan.
 
-## Current Stage
-- M1.1-M1.4 are complete.
-- M2.1-M2.4 are complete and committed in `a997353` (`m2: collect process metadata`).
-- M2.5 Scan Limitations is CODE COMPLETE in the working tree after `a997353`.
-- Public scan commands remain scaffolded and return not-implemented after scan setup succeeds.
+## Current State
+- Current branch is `m3-artifact-list`.
+- `.codex/plans/m3-artifact-list-plan.md` exists and defines scoped M3 slices from group key construction through first raw `nsurgn list` output.
+- The M3 plan is documentation only; no production code was changed for M3 implementation.
+- Existing scan code still stops after PID enumeration, host profile reading, and process namespace row writing.
+- Public scan commands still run the scan and return scaffolded not-implemented behavior.
 
-## Key Decisions
-- M2 remains limited to PID enumeration, host namespace baseline, per-process namespace reads, minimal process metadata, and internal limitations.
-- No artifact grouping, artifact IDs, leader selection, scoring, classification, cgroup grouping, mountinfo/root/exe evidence, or real public `list` output before M3.
-- Process-level namespace/status/stat read failures are recorded as warning rows in `scan_limitation.tsv`; fatal host-profile failures remain error rows with the existing exit-code behavior.
+## Changed Artifacts
+- `.codex/plans/m3-artifact-list-plan.md`: new M3 plan covering grouping, artifact aggregation, leader selection, minimal namespace-only scoring/classification, visibility/ID assignment, and first raw `list` output.
+- `.codex/handoffs/current.md`: refreshed to this continuation state.
 
-## Changed Files
-- `PLAN`: marks M2.5 completed in the working tree after `a997353`.
-- `lib/scan.sh`: adds process-source limitation recording for namespace/status/stat failures and avoids directory-backed fake proc entries causing shell redirection noise for status/stat readers.
-- `test/smoke.sh`: adds fixture coverage for permission-denied and vanished process-source limitation rows.
-- `.codex/handoffs/current.md`: refreshed to this state.
+## Checks And Evidence
+- Source context checked from `PLAN`, `SPEC.md`, `DESIGN.md`, `lib/scan.sh`, `lib/commands.sh`, and `test/smoke.sh`.
+- `git status --short --branch` showed `.codex/handoffs/current.md` modified before plan creation and the new plan file after creation.
+- No tests were run because only documentation and handoff files changed.
 
-## Validation Performed
-- `test/smoke.sh` passed.
-- `bash -n bin/nsurgn lib/cli.sh lib/commands.sh lib/doctor.sh lib/errors.sh lib/scan.sh lib/util.sh test/smoke.sh` passed.
-- `shellcheck -x bin/nsurgn lib/cli.sh lib/commands.sh lib/doctor.sh lib/errors.sh lib/scan.sh lib/util.sh test/smoke.sh` passed.
+## Risks, Blockers, And Open Questions
+- `--group cgroup` is deferred until cgroup summary records exist.
+- Runtime hints, mountinfo/root/exe/cmdline evidence, anomaly triggers, and structured renderers are deferred from the first raw `list` slice.
+- The first implementation slice should avoid broad refactors unless `lib/scan.sh` becomes hard to review.
 
-## Open Questions
-- Should M2 helper functions be split immediately or kept in `lib/scan.sh` until extraction is justified?
-- Should ShellCheck be required in the test harness or only run opportunistically when installed?
-- What is the cleanest test-only way to inspect the scan workspace without creating public debug output?
-
-## Known Risks
-- M2 can expand quickly if M3 grouping/classification/output work is pulled in early. Keep the next slice narrow.
-
-## Next Action
-Review `PLAN` for M2.6 Verification Surface and M2.7 Tests, then decide whether they are complete with the current helper-based smoke coverage or need additional live-scan workspace assertions before starting M3.
+## Immediate Next Action And Owner
+Owner: Unknown. Implement M3.1 group key construction from `.codex/plans/m3-artifact-list-plan.md`.
