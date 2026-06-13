@@ -217,6 +217,8 @@ Acceptance:
 
 ### M2.5 Scan Limitations
 
+Status: completed in working tree after commit `a997353`.
+
 Scope: internal limitation recording.
 
 Implementation slices:

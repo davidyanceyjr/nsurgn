@@ -345,6 +345,54 @@ run_host_profile_reader_contract() {
   NSURGN_SCAN_DIR=''
 }
 
+run_process_limitation_contract() {
+  local tmpdir row limitation_summary
+
+  tmpdir="$(mktemp -d)"
+  mkdir -p "${tmpdir}/42/ns" "${tmpdir}/scan"
+  NSURGN_SCAN_DIR="${tmpdir}/scan"
+  : >"${NSURGN_SCAN_DIR}/scan_limitation.tsv"
+
+  mkdir "${tmpdir}/42/ns/pid"
+  ln -s 'mnt:[1002]' "${tmpdir}/42/ns/mnt"
+  ln -s 'net:[1003]' "${tmpdir}/42/ns/net"
+  ln -s 'user:[1004]' "${tmpdir}/42/ns/user"
+  mkdir "${tmpdir}/42/status" "${tmpdir}/42/stat"
+
+  row="$(nsurgn_scan_write_process_namespace_row "$tmpdir" 42)" || {
+    rm -rf "$tmpdir"
+    fail 'process limitation row write failed'
+  }
+  printf '%s\n' "$row" | awk -F '\t' '$23 == "permission-denied" && $24 == "permission-denied" && $25 == "permission-denied" && $26 == "permission-denied" { found=1 } END { exit found ? 0 : 1 }' || {
+    rm -rf "$tmpdir"
+    fail "unexpected permission-denied process row: ${row}"
+  }
+
+  nsurgn_scan_write_process_namespace_row "$tmpdir" 99 >/dev/null || {
+    rm -rf "$tmpdir"
+    fail 'vanished process limitation row write failed'
+  }
+
+  limitation_summary="$(awk -F '\t' '
+    $1 == "warning" && $2 == "permission_denied" && $3 == "42" && $5 == "namespace" && $6 == "permission-denied" { permission_namespace=1 }
+    $1 == "warning" && $2 == "permission_denied" && $3 == "42" && $5 == "status" && $6 == "permission-denied" { permission_status=1 }
+    $1 == "warning" && $2 == "permission_denied" && $3 == "42" && $5 == "stat" && $6 == "permission-denied" { permission_stat=1 }
+    $1 == "warning" && $2 == "process_vanished" && $3 == "99" && $5 == "namespace" && $6 == "vanished" { vanished_namespace=1 }
+    $1 == "warning" && $2 == "process_vanished" && $3 == "99" && $5 == "status" && $6 == "vanished" { vanished_status=1 }
+    $1 == "warning" && $2 == "process_vanished" && $3 == "99" && $5 == "stat" && $6 == "vanished" { vanished_stat=1 }
+    END {
+      print permission_namespace ":" permission_status ":" permission_stat ":" vanished_namespace ":" vanished_status ":" vanished_stat ":" NR
+    }
+  ' "${NSURGN_SCAN_DIR}/scan_limitation.tsv")"
+  [ "$limitation_summary" = '1:1:1:1:1:1:6' ] || {
+    rm -rf "$tmpdir"
+    fail "unexpected process limitations: ${limitation_summary}"
+  }
+
+  rm -rf "$tmpdir"
+  NSURGN_SCAN_DIR=''
+}
+
 run_ok "$NSURGN" help
 run_ok "$NSURGN" --help
 run_ok "$NSURGN" version
@@ -402,6 +450,7 @@ line_count="$(printf '%s\n' "$escaped" | wc -l | awk '{ print $1 }')"
 run_pid_enumeration_contract
 run_namespace_reader_contract
 run_host_profile_reader_contract
+run_process_limitation_contract
 run_shellcheck_if_available
 
 printf 'ok - scaffold smoke tests passed\n'

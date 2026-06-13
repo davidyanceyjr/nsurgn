@@ -129,6 +129,31 @@ nsurgn_scan_write_limitation() {
     "$message" >>"${NSURGN_SCAN_DIR}/scan_limitation.tsv"
 }
 
+nsurgn_scan_write_process_source_limitation() {
+  local host_pid="$1"
+  local source="$2"
+  local read_status="$3"
+  local path="$4"
+  local code message
+
+  [ -n "${NSURGN_SCAN_DIR:-}" ] || return 0
+  [ -f "${NSURGN_SCAN_DIR}/scan_limitation.tsv" ] || return 0
+
+  case "$read_status" in
+    permission-denied)
+      code='permission_denied'
+      message="cannot read process ${source}"
+      ;;
+    vanished)
+      code='process_vanished'
+      message="process vanished while reading ${source}"
+      ;;
+    *) return 0 ;;
+  esac
+
+  nsurgn_scan_write_limitation warning "$code" "$host_pid" "$path" "$source" "$read_status" "$message"
+}
+
 nsurgn_scan_read_status_fields() {
   local proc_root="${1:-/proc}"
   local host_pid="$2"
@@ -149,6 +174,11 @@ nsurgn_scan_read_status_fields() {
     else
       nsurgn_join_by_tab permission-denied - - - -
     fi
+    return 0
+  fi
+
+  if [ ! -f "$status_path" ]; then
+    nsurgn_join_by_tab permission-denied - - - -
     return 0
   fi
 
@@ -208,6 +238,11 @@ nsurgn_scan_read_stat_fields() {
     else
       nsurgn_join_by_tab permission-denied -
     fi
+    return 0
+  fi
+
+  if [ ! -f "$stat_path" ]; then
+    nsurgn_join_by_tab permission-denied -
     return 0
   fi
 
@@ -301,6 +336,10 @@ nsurgn_scan_write_process_namespace_row() {
   IFS=$'\t' read -r status_read_status ppid uid state ns_pid <<<"$status_fields"
   stat_fields="$(nsurgn_scan_read_stat_fields "$proc_root" "$host_pid")"
   IFS=$'\t' read -r stat_read_status start_time <<<"$stat_fields"
+
+  nsurgn_scan_write_process_source_limitation "$host_pid" namespace "$namespace_read_status" "${proc_root}/${host_pid}/ns"
+  nsurgn_scan_write_process_source_limitation "$host_pid" status "$status_read_status" "${proc_root}/${host_pid}/status"
+  nsurgn_scan_write_process_source_limitation "$host_pid" stat "$stat_read_status" "${proc_root}/${host_pid}/stat"
 
   if [ "$namespace_read_status" = 'vanished' ] ||
     [ "$status_read_status" = 'vanished' ] ||
