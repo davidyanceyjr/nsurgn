@@ -393,6 +393,81 @@ run_process_limitation_contract() {
   NSURGN_SCAN_DIR=''
 }
 
+restore_live_scan_state() {
+  local previous_scan_dir="$1"
+  local previous_host_pid="$2"
+  local previous_host_pid_was_set="$3"
+
+  NSURGN_SCAN_DIR="$previous_scan_dir"
+  if [ "$previous_host_pid_was_set" -eq 1 ]; then
+    NSURGN_HOST_PID="$previous_host_pid"
+  else
+    unset NSURGN_HOST_PID
+  fi
+}
+
+fail_live_scan_workspace_contract() {
+  local message="$1"
+  local previous_scan_dir="$2"
+  local previous_host_pid="$3"
+  local previous_host_pid_was_set="$4"
+
+  nsurgn_scan_cleanup
+  restore_live_scan_state "$previous_scan_dir" "$previous_host_pid" "$previous_host_pid_was_set"
+  fail "$message"
+}
+
+run_live_scan_workspace_contract() {
+  local scan_dir host_pid previous_scan_dir previous_host_pid host_profile_fields
+  local previous_host_pid_was_set=0
+
+  previous_scan_dir="${NSURGN_SCAN_DIR:-}"
+  previous_host_pid=''
+  if [ "${NSURGN_HOST_PID+x}" = x ]; then
+    previous_host_pid="$NSURGN_HOST_PID"
+    previous_host_pid_was_set=1
+  fi
+  host_pid="$$"
+  NSURGN_HOST_PID="$host_pid"
+
+  nsurgn_scan_run >/dev/null 2>/dev/null || {
+    fail_live_scan_workspace_contract 'live scan workspace setup failed' "$previous_scan_dir" "$previous_host_pid" "$previous_host_pid_was_set"
+  }
+
+  scan_dir="$NSURGN_SCAN_DIR"
+
+  [ -d "$scan_dir" ] ||
+    fail_live_scan_workspace_contract 'expected live scan workspace directory' "$previous_scan_dir" "$previous_host_pid" "$previous_host_pid_was_set"
+  [ -s "${scan_dir}/visible_pids.tsv" ] ||
+    fail_live_scan_workspace_contract 'expected visible PID rows' "$previous_scan_dir" "$previous_host_pid" "$previous_host_pid_was_set"
+  [ -s "${scan_dir}/host_profile.tsv" ] ||
+    fail_live_scan_workspace_contract 'expected host profile row' "$previous_scan_dir" "$previous_host_pid" "$previous_host_pid_was_set"
+  [ -s "${scan_dir}/process.tsv" ] ||
+    fail_live_scan_workspace_contract 'expected process namespace rows' "$previous_scan_dir" "$previous_host_pid" "$previous_host_pid_was_set"
+
+  if ! awk 'NF != 1 || $1 !~ /^[0-9]+$/ { exit 1 }' "${scan_dir}/visible_pids.tsv"; then
+    fail_live_scan_workspace_contract 'visible PID workspace rows must be numeric' "$previous_scan_dir" "$previous_host_pid" "$previous_host_pid_was_set"
+  fi
+
+  if ! grep -Fx "$$" "${scan_dir}/visible_pids.tsv" >/dev/null; then
+    fail_live_scan_workspace_contract 'expected current shell PID in live scan workspace' "$previous_scan_dir" "$previous_host_pid" "$previous_host_pid_was_set"
+  fi
+
+  host_profile_fields="$(awk -F '\t' 'NR == 1 { print NF } END { if (NR != 1) exit 1 }' "${scan_dir}/host_profile.tsv")" || {
+    fail_live_scan_workspace_contract 'expected exactly one host profile row' "$previous_scan_dir" "$previous_host_pid" "$previous_host_pid_was_set"
+  }
+  [ "$host_profile_fields" -eq 10 ] || {
+    fail_live_scan_workspace_contract "expected 10 host profile fields, got ${host_profile_fields}" "$previous_scan_dir" "$previous_host_pid" "$previous_host_pid_was_set"
+  }
+
+  if ! awk -F '\t' 'NF != 31 { exit 1 } END { exit NR > 0 ? 0 : 1 }' "${scan_dir}/process.tsv"; then
+    fail_live_scan_workspace_contract 'expected normalized process workspace rows' "$previous_scan_dir" "$previous_host_pid" "$previous_host_pid_was_set"
+  fi
+
+  nsurgn_scan_cleanup
+  restore_live_scan_state "$previous_scan_dir" "$previous_host_pid" "$previous_host_pid_was_set"
+}
+
 run_ok "$NSURGN" help
 run_ok "$NSURGN" --help
 run_ok "$NSURGN" version
@@ -451,6 +526,7 @@ run_pid_enumeration_contract
 run_namespace_reader_contract
 run_host_profile_reader_contract
 run_process_limitation_contract
+run_live_scan_workspace_contract
 run_shellcheck_if_available
 
 printf 'ok - scaffold smoke tests passed\n'

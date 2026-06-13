@@ -235,6 +235,8 @@ Acceptance:
 
 ### M2.6 Verification Surface
 
+Status: completed in working tree after commit `10c162f`.
+
 Scope: testing internal scan behavior before public artifact output exists.
 
 Implementation slices:
