@@ -446,6 +446,47 @@ make_process_row_for_group_key() {
     -
 }
 
+make_process_row_for_leader() {
+  local host_pid="$1"
+  local pid_ns="$2"
+  local start_time="$3"
+  local ns_pid="$4"
+  local read_status="$5"
+
+  nsurgn_join_by_tab \
+    "$host_pid" \
+    1 \
+    0 \
+    - \
+    S \
+    "$start_time" \
+    "$ns_pid" \
+    "$pid_ns" \
+    1002 \
+    1003 \
+    1004 \
+    - \
+    - \
+    - \
+    - \
+    - \
+    - \
+    - \
+    - \
+    - \
+    - \
+    - \
+    "$read_status" \
+    ok \
+    ok \
+    ok \
+    - \
+    - \
+    - \
+    - \
+    -
+}
+
 run_group_key_contract() {
   local row_a row_b key_a key_b expected
 
@@ -551,13 +592,75 @@ run_artifact_aggregation_contract() {
     fail 'expected internal unknown group key without public unknown namespace values'
 
   awk -F '\t' '
-    $2 == "42" && $3 == "member" { p42=1 }
-    $2 == "43" && $3 == "member" { p43=1 }
-    $2 == "44" && $3 == "member" { p44=1 }
-    $2 == "45" && $3 == "member" { p45=1 }
+    $2 == "42" && ($3 == "leader" || $3 == "member") { p42=1 }
+    $2 == "43" && ($3 == "leader" || $3 == "member") { p43=1 }
+    $2 == "44" && ($3 == "leader" || $3 == "member") { p44=1 }
+    $2 == "45" && ($3 == "leader" || $3 == "member") { p45=1 }
     END { exit p42 && p43 && p44 && p45 ? 0 : 1 }
   ' "$artifact_process_file" ||
-    fail 'expected complete artifact membership with placeholder roles'
+    fail 'expected complete artifact membership with normalized roles'
+
+  rm -rf "$tmpdir"
+}
+
+run_artifact_leader_contract() {
+  local tmpdir process_file artifact_file artifact_process_file host_profile_file
+
+  tmpdir="$(mktemp -d)"
+  process_file="${tmpdir}/process.tsv"
+  artifact_file="${tmpdir}/artifact.tsv"
+  artifact_process_file="${tmpdir}/artifact_process.tsv"
+  host_profile_file="${tmpdir}/host_profile.tsv"
+  nsurgn_join_by_tab 1 5001 5002 5003 5004 - - - - ok >"$host_profile_file"
+
+  {
+    make_process_row_for_leader 41 1001 10 2 ok
+    make_process_row_for_leader 42 1001 20 1 ok
+    make_process_row_for_leader 43 1001 1 3 ok
+  } >"$process_file"
+  nsurgn_scan_build_artifacts profile "$process_file" "$artifact_file" "$artifact_process_file" "$host_profile_file" ||
+    fail 'nested-init artifact leader selection failed'
+  awk -F '\t' '
+    $13 == "42" && $14 == "1" && $19 == "nested-pid-init" { found=1 }
+    END { exit found ? 0 : 1 }
+  ' "$artifact_file" ||
+    fail 'expected nested PID namespace init leader to win'
+  awk -F '\t' '$2 == "42" && $3 == "leader" { found=1 } END { exit found ? 0 : 1 }' "$artifact_process_file" ||
+    fail 'expected nested-init member role to be leader'
+
+  {
+    make_process_row_for_leader 51 5001 30 51 ok
+    make_process_row_for_leader 52 5001 20 52 ok
+    make_process_row_for_leader 53 5001 20 53 ok
+  } >"$process_file"
+  nsurgn_scan_build_artifacts profile "$process_file" "$artifact_file" "$artifact_process_file" "$host_profile_file" ||
+    fail 'oldest-process artifact leader selection failed'
+  awk -F '\t' '
+    $13 == "52" && $14 == "52" && $19 == "oldest-process" { found=1 }
+    END { exit found ? 0 : 1 }
+  ' "$artifact_file" ||
+    fail 'expected oldest process leader with host PID tie-break'
+  awk -F '\t' '$2 == "52" && $3 == "leader" { found=1 } END { exit found ? 0 : 1 }' "$artifact_process_file" ||
+    fail 'expected oldest-process member role to be leader'
+
+  {
+    make_process_row_for_leader 61 5001 - 61 ok
+    make_process_row_for_leader 60 5001 - 60 permission-denied
+    make_process_row_for_leader 59 5001 - 59 vanished
+  } >"$process_file"
+  nsurgn_scan_build_artifacts profile "$process_file" "$artifact_file" "$artifact_process_file" "$host_profile_file" ||
+    fail 'lowest-host-pid artifact leader selection failed'
+  awk -F '\t' '
+    $13 == "60" && $14 == "60" && $19 == "lowest-host-pid" { found=1 }
+    END { exit found ? 0 : 1 }
+  ' "$artifact_file" ||
+    fail 'expected lowest eligible host PID leader fallback'
+  awk -F '\t' '
+    $2 == "60" && $3 == "leader" { leader=1 }
+    $2 == "59" && $3 == "leader" { vanished_leader=1 }
+    END { exit leader && !vanished_leader ? 0 : 1 }
+  ' "$artifact_process_file" ||
+    fail 'expected fallback member role to ignore vanished process'
 
   rm -rf "$tmpdir"
 }
@@ -707,6 +810,7 @@ run_host_profile_reader_contract
 run_process_limitation_contract
 run_group_key_contract
 run_artifact_aggregation_contract
+run_artifact_leader_contract
 run_live_scan_workspace_contract
 run_shellcheck_if_available
 

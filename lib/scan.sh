@@ -490,20 +490,38 @@ nsurgn_scan_update_namespace_aggregate() {
   printf -v "$variable_name" '%s' "$next_value"
 }
 
+nsurgn_scan_host_pid_namespace_from_profile() {
+  local host_profile_file="${1:-${NSURGN_SCAN_DIR}/host_profile.tsv}"
+  local _ host_pid_ns
+
+  if [ -f "$host_profile_file" ]; then
+    IFS=$'\t' read -r _ host_pid_ns _ <"$host_profile_file" || host_pid_ns='-'
+  else
+    host_pid_ns='-'
+  fi
+
+  [ -n "${host_pid_ns:-}" ] || host_pid_ns='-'
+  printf '%s\n' "$host_pid_ns"
+}
+
 nsurgn_scan_build_artifacts() {
   local group_mode="${1:-${NSURGN_GROUP:-profile}}"
   local process_file="${2:-${NSURGN_SCAN_DIR}/process.tsv}"
   local artifact_file="${3:-${NSURGN_SCAN_DIR}/artifact.tsv}"
   local artifact_process_file="${4:-${NSURGN_SCAN_DIR}/artifact_process.tsv}"
+  local host_profile_file="${5:-${NSURGN_SCAN_DIR}/host_profile.tsv}"
   local process_row group_key host_pid
   local pid_ns mnt_ns net_ns user_ns uts_ns ipc_ns cgroup_ns time_ns
-  local artifact_index artifact_id member_pid sorted_keys
+  local start_time ns_pid read_status
+  local artifact_index artifact_id member_pid sorted_keys leader_pid leader_ns_pid leader_reason role
   local namespace_type namespace_id group_component group_namespace_types
+  local host_pid_ns member_key
   local _
   local keys=()
   local -A seen=()
   local -A process_count=()
   local -A member_pids=()
+  local -A member_ns_pid=()
   local -A aggregate_pid_ns=()
   local -A aggregate_mnt_ns=()
   local -A aggregate_net_ns=()
@@ -512,9 +530,16 @@ nsurgn_scan_build_artifacts() {
   local -A aggregate_ipc_ns=()
   local -A aggregate_cgroup_ns=()
   local -A aggregate_time_ns=()
+  local -A nested_known_pid=()
+  local -A nested_known_start_time=()
+  local -A nested_unknown_pid=()
+  local -A oldest_pid=()
+  local -A oldest_start_time=()
+  local -A fallback_pid=()
 
   [ "$group_mode" != 'cgroup' ] || return 1
   group_namespace_types="$(nsurgn_scan_group_namespace_types "$group_mode")" || return "$?"
+  host_pid_ns="$(nsurgn_scan_host_pid_namespace_from_profile "$host_profile_file")"
 
   while IFS= read -r process_row; do
     [ -n "$process_row" ] || continue
@@ -524,8 +549,8 @@ nsurgn_scan_build_artifacts() {
       _ \
       _ \
       _ \
-      _ \
-      _ \
+      start_time \
+      ns_pid \
       pid_ns \
       mnt_ns \
       net_ns \
@@ -534,6 +559,14 @@ nsurgn_scan_build_artifacts() {
       ipc_ns \
       cgroup_ns \
       time_ns \
+      _ \
+      _ \
+      _ \
+      _ \
+      _ \
+      _ \
+      _ \
+      read_status \
       _ <<<"$process_row"
 
     group_key=''
@@ -580,6 +613,8 @@ nsurgn_scan_build_artifacts() {
 
     process_count[$group_key]=$((process_count[$group_key] + 1))
     member_pids[$group_key]+="${host_pid}"$'\n'
+    member_key="${group_key}"$'\t'"${host_pid}"
+    member_ns_pid[$member_key]="$ns_pid"
     nsurgn_scan_update_namespace_aggregate "aggregate_pid_ns[$group_key]" "$pid_ns"
     nsurgn_scan_update_namespace_aggregate "aggregate_mnt_ns[$group_key]" "$mnt_ns"
     nsurgn_scan_update_namespace_aggregate "aggregate_net_ns[$group_key]" "$net_ns"
@@ -588,6 +623,41 @@ nsurgn_scan_build_artifacts() {
     nsurgn_scan_update_namespace_aggregate "aggregate_ipc_ns[$group_key]" "$ipc_ns"
     nsurgn_scan_update_namespace_aggregate "aggregate_cgroup_ns[$group_key]" "$cgroup_ns"
     nsurgn_scan_update_namespace_aggregate "aggregate_time_ns[$group_key]" "$time_ns"
+
+    nsurgn_is_uint "$host_pid" || continue
+    case "$read_status" in
+      ok|permission-denied) ;;
+      *) continue ;;
+    esac
+
+    if [ -z "${fallback_pid[$group_key]+x}" ] || [ "$host_pid" -lt "${fallback_pid[$group_key]}" ]; then
+      fallback_pid[$group_key]="$host_pid"
+    fi
+
+    if nsurgn_is_uint "$start_time"; then
+      if [ -z "${oldest_pid[$group_key]+x}" ] ||
+        [ "$start_time" -lt "${oldest_start_time[$group_key]}" ] ||
+        { [ "$start_time" -eq "${oldest_start_time[$group_key]}" ] && [ "$host_pid" -lt "${oldest_pid[$group_key]}" ]; }; then
+        oldest_pid[$group_key]="$host_pid"
+        oldest_start_time[$group_key]="$start_time"
+      fi
+    fi
+
+    if [ "$ns_pid" = '1' ] &&
+      [ "$pid_ns" != '-' ] &&
+      [ "$host_pid_ns" != '-' ] &&
+      [ "$pid_ns" != "$host_pid_ns" ]; then
+      if nsurgn_is_uint "$start_time"; then
+        if [ -z "${nested_known_pid[$group_key]+x}" ] ||
+          [ "$start_time" -lt "${nested_known_start_time[$group_key]}" ] ||
+          { [ "$start_time" -eq "${nested_known_start_time[$group_key]}" ] && [ "$host_pid" -lt "${nested_known_pid[$group_key]}" ]; }; then
+          nested_known_pid[$group_key]="$host_pid"
+          nested_known_start_time[$group_key]="$start_time"
+        fi
+      elif [ -z "${nested_unknown_pid[$group_key]+x}" ] || [ "$host_pid" -lt "${nested_unknown_pid[$group_key]}" ]; then
+        nested_unknown_pid[$group_key]="$host_pid"
+      fi
+    fi
   done <"$process_file"
 
   : >"$artifact_file"
@@ -599,7 +669,27 @@ nsurgn_scan_build_artifacts() {
   artifact_index=1
   while IFS= read -r group_key; do
     [ -n "$group_key" ] || continue
+    leader_pid='-'
+    leader_reason='-'
+    if [ -n "${nested_known_pid[$group_key]:-}" ]; then
+      leader_pid="${nested_known_pid[$group_key]}"
+      leader_reason='nested-pid-init'
+    elif [ -n "${nested_unknown_pid[$group_key]:-}" ]; then
+      leader_pid="${nested_unknown_pid[$group_key]}"
+      leader_reason='nested-pid-init'
+    elif [ -n "${oldest_pid[$group_key]:-}" ]; then
+      leader_pid="${oldest_pid[$group_key]}"
+      leader_reason='oldest-process'
+    elif [ -n "${fallback_pid[$group_key]:-}" ]; then
+      leader_pid="${fallback_pid[$group_key]}"
+      leader_reason='lowest-host-pid'
+    else
+      continue
+    fi
+
     artifact_id="G${artifact_index}"
+    member_key="${group_key}"$'\t'"${leader_pid}"
+    leader_ns_pid="${member_ns_pid[$member_key]:--}"
 
     nsurgn_join_by_tab \
       "$artifact_id" \
@@ -614,17 +704,19 @@ nsurgn_scan_build_artifacts() {
       "${aggregate_time_ns[$group_key]}" \
       - \
       - \
-      - \
-      - \
+      "$leader_pid" \
+      "$leader_ns_pid" \
       "${process_count[$group_key]}" \
       - \
       - \
       - \
-      - >>"$artifact_file"
+      "$leader_reason" >>"$artifact_file"
 
     while IFS= read -r member_pid; do
       [ -n "$member_pid" ] || continue
-      nsurgn_join_by_tab "$artifact_id" "$member_pid" member >>"$artifact_process_file"
+      role='member'
+      [ "$member_pid" = "$leader_pid" ] && role='leader'
+      nsurgn_join_by_tab "$artifact_id" "$member_pid" "$role" >>"$artifact_process_file"
     done < <(printf '%s' "${member_pids[$group_key]}" | sort -n)
 
     artifact_index=$((artifact_index + 1))
