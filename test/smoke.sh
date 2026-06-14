@@ -958,6 +958,41 @@ run_artifact_classification_contract() {
   rm -rf "$tmpdir"
 }
 
+run_artifact_cgroup_hint_contract() {
+  local tmpdir process_file artifact_file artifact_process_file host_profile_file cgroup_summary_file
+
+  tmpdir="$(mktemp -d)"
+  process_file="${tmpdir}/process.tsv"
+  artifact_file="${tmpdir}/artifact.tsv"
+  artifact_process_file="${tmpdir}/artifact_process.tsv"
+  host_profile_file="${tmpdir}/host_profile.tsv"
+  cgroup_summary_file="${tmpdir}/process_cgroup_summary.tsv"
+  nsurgn_join_by_tab 1 5001 5002 5003 5004 5005 5006 5007 5008 ok >"$host_profile_file"
+
+  {
+    make_process_row_for_classification 86 7001 7002 7003 7004 5005 5006 5007 5008 86 10
+    make_process_row_for_classification 87 7001 7002 7003 7004 5005 5006 5007 5008 87 20
+    make_process_row_for_classification 88 8001 8002 8003 8004 5005 5006 5007 5008 88 30
+  } >"$process_file"
+
+  {
+    nsurgn_join_by_tab 86 ok cgroup:v2:/docker/foo docker docker 1
+    nsurgn_join_by_tab 87 ok cgroup:v2:/kubepods.slice/pod123 kubepods kubernetes 1
+  } >"$cgroup_summary_file"
+
+  nsurgn_scan_build_artifacts profile "$process_file" "$artifact_file" "$artifact_process_file" "$host_profile_file" ||
+    fail 'artifact cgroup hint aggregation failed'
+
+  awk -F '\t' '
+    $2 == "pid=7001+mnt=7002+net=7003+user=7004" && $16 == "kubernetes" && $17 == "kubepods" { hinted=1 }
+    $2 == "pid=8001+mnt=8002+net=8003+user=8004" && $16 == "-" && $17 == "-" { missing=1 }
+    END { exit hinted && missing ? 0 : 1 }
+  ' "$artifact_file" ||
+    fail 'expected profile-grouped artifacts to aggregate cgroup hints from process summaries'
+
+  rm -rf "$tmpdir"
+}
+
 run_cgroup_grouping_contract() {
   local tmpdir process_file artifact_file artifact_process_file host_profile_file cgroup_summary_file
 
@@ -987,11 +1022,11 @@ run_cgroup_grouping_contract() {
   awk -F '\t' 'NF != 19 { exit 1 } END { exit NR == 2 ? 0 : 1 }' "$artifact_file" ||
     fail 'expected two cgroup-grouped artifact rows'
   awk -F '\t' '
-    $2 == "cgroup:v2:/kubepods.slice/pod123" && $3 == "mixed" && $15 == "2" { v2=1 }
-    $2 == "cgroup:v1:cpu=/docker/foo" && $3 == "9001" && $15 == "1" { v1=1 }
+    $2 == "cgroup:v2:/kubepods.slice/pod123" && $3 == "mixed" && $15 == "2" && $16 == "kubernetes" && $17 == "kubepods" { v2=1 }
+    $2 == "cgroup:v1:cpu=/docker/foo" && $3 == "9001" && $15 == "1" && $16 == "docker" && $17 == "docker" { v1=1 }
     END { exit v2 && v1 ? 0 : 1 }
   ' "$artifact_file" ||
-    fail 'expected cgroup summary keys to control artifact identity'
+    fail 'expected cgroup summary keys and hints to control artifact identity'
 
   rm -rf "$tmpdir"
 }
@@ -1190,6 +1225,7 @@ run_group_key_contract
 run_artifact_aggregation_contract
 run_artifact_leader_contract
 run_artifact_classification_contract
+run_artifact_cgroup_hint_contract
 run_cgroup_grouping_contract
 run_visible_artifact_contract
 run_list_raw_contract

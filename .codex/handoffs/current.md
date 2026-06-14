@@ -3,37 +3,64 @@
 Handoff Status: active
 
 ## Objective
-Continue after adding cgroup procfs readers, cgroup summaries, and `--group cgroup` artifact grouping after M3 raw `list`.
+
+Continue the planned post-M3 cgroup stage on branch `m3-artifact-list`, using `.codex/plans/post-m3-cgroup-and-metadata-plan.md` as the active plan.
+
+## Scope And Non-Goals
+
+Scope is cgroup-derived process and artifact evidence after M3 raw `list`: cgroup reader/summary records, `--group cgroup`, artifact-level cgroup/runtime hints, cgroup classification reasons, and final branch validation.
+
+Non-goals for this stage are runtime API dependencies, runtime identity claims, `inspect`/`ps`/`report`/`map` target behavior, mountinfo/root/exe/cmdline/comm readers, and JSON/NDJSON/table/text renderers unless a tiny integration fix requires otherwise.
 
 ## Current State
-- Current branch is `m3-artifact-list`.
-- M3 first real raw `nsurgn list` output remains complete.
-- Post-M3 cgroup reader slice is complete in `lib/scan.sh`.
-- `process_cgroup.tsv` is now populated from `/proc/<pid>/cgroup` parseable non-blank lines.
-- `process_cgroup_summary.tsv` is now populated for every process row with `cgroup_read_status`, `cgroup_group_key`, cgroup-derived hints, and path counts.
-- `process.tsv` now carries `cgroup_read_status` and cgroup-derived `cgroup_hint`/`runtime_hint` fields from the cgroup reader.
-- `--group cgroup` now builds artifacts from `process_cgroup_summary.tsv` group keys.
-- Default cgroup-grouped `list` still hides host-classified artifacts; `--include-host --group cgroup list` shows host rows when coherent.
-- `inspect`, `ps`, `report`, and `map` remain scaffolded not-implemented scan commands.
+
+- Current branch from `git status`: `m3-artifact-list...origin/m3-artifact-list`.
+- Active plan: `.codex/plans/post-m3-cgroup-and-metadata-plan.md`, `Plan Status: active`.
+- Deprecated plan: `.codex/plans/m3-artifact-list-plan.md`, truncated to a 26-line archive stub to avoid loading stale M3 implementation slices.
+- Planned cgroup slices:
+  - `C1` procfs cgroup reader and summary: in progress per active plan.
+  - `C2` cgroup artifact grouping: in progress per active plan.
+  - `C3` artifact cgroup/runtime hint aggregation: immediate implementation slice per active plan.
+  - `C4` cgroup classification reasons and labels: planned after C3.
+  - `C5` cgroup stage finalization: planned after C4.
+- Working tree has modified `lib/scan.sh` and `test/smoke.sh` from cgroup implementation work that predates this handoff.
+- Working tree also has documentation updates to `.codex/plans/m3-artifact-list-plan.md`, new `.codex/plans/post-m3-cgroup-and-metadata-plan.md`, and this handoff.
+- `PLAN` is deleted in the working tree. This deletion was observed before this handoff and was not introduced by the plan/handoff edits in this session.
+
+## Established Decisions And Traceability
+
+- Use `.codex/plans/post-m3-cgroup-and-metadata-plan.md` as the continuation source, not the deprecated M3 plan.
+- Keep the cgroup stage on `m3-artifact-list` until C5 finalization.
+- Merge to `main` only after cgroup reader/summary, `--group cgroup`, artifact hints, and either C4 completion or explicit C4 deferral are validated.
+- After merging, create a new branch from updated `main`; suggested name in the active plan is `metadata-readers`.
 
 ## Changed Artifacts
-- `lib/scan.sh`: adds cgroup line parsing, v1 controller normalization, v2 precedence, cgroup group-key selection, cgroup hint/runtime-hint derivation from cgroup paths, cgroup summary writing, and cgroup grouping support.
-- `lib/scan.sh`: changes namespace aggregate updates to use a Bash nameref so associative-array keys containing cgroup paths are safe under `set -u`.
-- `test/smoke.sh`: adds cgroup reader, summary, contributor, and cgroup grouping coverage; updates process limitation expectations for cgroup source failures.
-- `.codex/handoffs/current.md`: refreshed for the next continuation action.
+
+- `.codex/plans/post-m3-cgroup-and-metadata-plan.md`: new active plan for C1-C5 and next-stage slices N1-N5.
+- `.codex/plans/m3-artifact-list-plan.md`: deprecated archive stub replacing stale 328-line plan.
+- `.codex/handoffs/current.md`: refreshed active handoff for next-session continuation.
+- `lib/scan.sh`: existing working-tree cgroup changes include artifact cgroup hint aggregation and cgroup summary loading according to the current diff.
+- `test/smoke.sh`: existing working-tree tests include cgroup reader/grouping/hint coverage according to the current diff.
+- `PLAN`: deleted in working tree; reason not established by current sources.
 
 ## Checks And Evidence
-- Ran `bash -n lib/scan.sh test/smoke.sh`; result: passed.
-- Ran `./test/smoke.sh`; result: `ok - scaffold smoke tests passed`.
-- Ran `shellcheck -x bin/nsurgn lib/cli.sh lib/commands.sh lib/doctor.sh lib/errors.sh lib/scan.sh lib/util.sh test/smoke.sh`; result: passed.
-- Ran `./bin/nsurgn --host-pid $$ --group cgroup list`; result: exit `0`, empty stdout allowed for hidden host artifacts.
-- Ran `./bin/nsurgn --host-pid $$ --include-host --group cgroup list`; result: exit `0`, raw host rows on stdout.
+
+- Read `12-handoff/SKILL.md` before writing this handoff.
+- Ran `git status --short --branch`; result showed modified handoff, plans, `lib/scan.sh`, `test/smoke.sh`, deleted `PLAN`, and new post-M3 plan.
+- Read `.codex/plans/post-m3-cgroup-and-metadata-plan.md` and `.codex/plans/m3-artifact-list-plan.md`.
+- No syntax, smoke, shellcheck, or live `nsurgn list` validation was run after the plan and handoff edits in this session.
 
 ## Risks, Blockers, And Open Questions
-- Artifact-level `runtime_hint` and `cgroup_hint` still render `-`; cgroup-derived artifact hint aggregation and classification selectors remain deferred.
-- Command/cmdline, exe, root, and mountinfo readers are not implemented.
-- Non-raw `list` formats remain intentionally not implemented.
-- Targeted commands and relationship/report rendering remain deferred.
+
+- The `PLAN` deletion needs source verification before commit or merge; it may be accidental or from unrelated prior work.
+- C1-C3 are marked in progress in the active plan and need fresh validation before completion is claimed.
+- Open question from the active plan: whether C4 cgroup classification reasons should land before merging this branch, or be deferred to the next branch.
+- Open question from the active plan: whether the next branch should focus narrowly on `cmdline`/`comm` or broader process metadata.
 
 ## Immediate Next Action And Owner
-Owner: Unknown. Decide whether the next slice should aggregate cgroup-derived artifact hints/classification reasons or add command/cmdline reader support for `leader_command`.
+
+Owner: Unknown. Run `bash -n lib/scan.sh test/smoke.sh` against the current working tree.
+
+## Resume Notes
+
+After the immediate syntax check, continue with the active plan in `.codex/plans/post-m3-cgroup-and-metadata-plan.md`. Verify current C1-C3 behavior before adding C4 classification reason work. Do not treat the deprecated M3 plan as an active checklist.

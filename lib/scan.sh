@@ -403,6 +403,38 @@ nsurgn_scan_cgroup_hint_rank() {
   esac
 }
 
+nsurgn_scan_update_cgroup_hint_aggregate() {
+  local aggregate_ref="$1"
+  local candidate="${2:--}"
+  local current_rank candidate_rank
+  local -n aggregate_value="$aggregate_ref"
+
+  case "$candidate" in
+    kubepods|docker|crio|libpod|containerd|lxc|machine.slice|container-id|none) ;;
+    *) candidate='-' ;;
+  esac
+
+  [ -n "${aggregate_value:-}" ] || aggregate_value='-'
+  [ "$candidate" != '-' ] || return 0
+
+  if [ "$aggregate_value" = '-' ]; then
+    aggregate_value="$candidate"
+    return 0
+  fi
+
+  [ "$candidate" != 'none' ] || return 0
+  if [ "$aggregate_value" = 'none' ]; then
+    aggregate_value="$candidate"
+    return 0
+  fi
+
+  current_rank="$(nsurgn_scan_cgroup_hint_rank "$aggregate_value")"
+  candidate_rank="$(nsurgn_scan_cgroup_hint_rank "$candidate")"
+  if [ "$candidate_rank" -lt "$current_rank" ]; then
+    aggregate_value="$candidate"
+  fi
+}
+
 nsurgn_scan_read_cgroup_fields() {
   local proc_root="${1:-/proc}"
   local host_pid="$2"
@@ -907,12 +939,14 @@ nsurgn_scan_build_artifacts() {
   local classification_reason_file="${6:-}"
   local cgroup_summary_file
   local process_row group_key host_pid
+  local cgroup_hint
   local pid_ns mnt_ns net_ns user_ns uts_ns ipc_ns cgroup_ns time_ns
   local start_time ns_pid read_status
   local artifact_index artifact_id member_pid sorted_keys leader_pid leader_ns_pid leader_reason role
   local namespace_type namespace_id group_component group_namespace_types
   local host_pid_ns host_mnt_ns host_net_ns host_user_ns host_uts_ns host_ipc_ns host_cgroup_ns host_time_ns
   local member_key classification score major_namespace_diff nested_pid_init_evidence
+  local artifact_cgroup_hint artifact_runtime_hint
   local _
   local keys=()
   local -A seen=()
@@ -934,6 +968,26 @@ nsurgn_scan_build_artifacts() {
   local -A oldest_start_time=()
   local -A fallback_pid=()
   local -A cgroup_group_key_by_pid=()
+  local -A cgroup_hint_by_pid=()
+  local -A aggregate_cgroup_hint=()
+
+  if [ -n "${NSURGN_SCAN_DIR:-}" ] && [ -f "${NSURGN_SCAN_DIR}/process_cgroup_summary.tsv" ]; then
+    cgroup_summary_file="${NSURGN_SCAN_DIR}/process_cgroup_summary.tsv"
+  elif [ "$process_file" != "${process_file%/*}" ] && [ -f "${process_file%/*}/process_cgroup_summary.tsv" ]; then
+    cgroup_summary_file="${process_file%/*}/process_cgroup_summary.tsv"
+  else
+    cgroup_summary_file=''
+  fi
+
+  if [ -n "$cgroup_summary_file" ]; then
+    while IFS=$'\t' read -r host_pid _ group_key cgroup_hint _ _; do
+      [ -n "${host_pid:-}" ] || continue
+      [ -n "${group_key:-}" ] || group_key='cgroup:unknown'
+      [ -n "${cgroup_hint:-}" ] || cgroup_hint='-'
+      cgroup_group_key_by_pid[$host_pid]="$group_key"
+      cgroup_hint_by_pid[$host_pid]="$cgroup_hint"
+    done <"$cgroup_summary_file"
+  fi
 
   if [ -z "$classification_reason_file" ]; then
     if [ -n "${NSURGN_SCAN_DIR:-}" ]; then
@@ -945,23 +999,7 @@ nsurgn_scan_build_artifacts() {
     fi
   fi
 
-  if [ "$group_mode" = 'cgroup' ]; then
-    if [ -n "${NSURGN_SCAN_DIR:-}" ] && [ -f "${NSURGN_SCAN_DIR}/process_cgroup_summary.tsv" ]; then
-      cgroup_summary_file="${NSURGN_SCAN_DIR}/process_cgroup_summary.tsv"
-    elif [ "$process_file" != "${process_file%/*}" ] && [ -f "${process_file%/*}/process_cgroup_summary.tsv" ]; then
-      cgroup_summary_file="${process_file%/*}/process_cgroup_summary.tsv"
-    else
-      cgroup_summary_file=''
-    fi
-
-    if [ -n "$cgroup_summary_file" ]; then
-      while IFS=$'\t' read -r host_pid _ group_key _; do
-        [ -n "${host_pid:-}" ] || continue
-        [ -n "${group_key:-}" ] || group_key='cgroup:unknown'
-        cgroup_group_key_by_pid[$host_pid]="$group_key"
-      done <"$cgroup_summary_file"
-    fi
-  else
+  if [ "$group_mode" != 'cgroup' ]; then
     group_namespace_types="$(nsurgn_scan_group_namespace_types "$group_mode")" || return "$?"
   fi
   if [ -f "$host_profile_file" ]; then
@@ -1076,6 +1114,7 @@ nsurgn_scan_build_artifacts() {
       aggregate_ipc_ns[$group_key]='-'
       aggregate_cgroup_ns[$group_key]='-'
       aggregate_time_ns[$group_key]='-'
+      aggregate_cgroup_hint[$group_key]='-'
     fi
 
     process_count[$group_key]=$((process_count[$group_key] + 1))
@@ -1090,6 +1129,7 @@ nsurgn_scan_build_artifacts() {
     nsurgn_scan_update_namespace_aggregate "aggregate_ipc_ns[$group_key]" "$ipc_ns"
     nsurgn_scan_update_namespace_aggregate "aggregate_cgroup_ns[$group_key]" "$cgroup_ns"
     nsurgn_scan_update_namespace_aggregate "aggregate_time_ns[$group_key]" "$time_ns"
+    nsurgn_scan_update_cgroup_hint_aggregate "aggregate_cgroup_hint[$group_key]" "${cgroup_hint_by_pid[$host_pid]:--}"
 
     nsurgn_is_uint "$host_pid" || continue
     case "$read_status" in
@@ -1158,6 +1198,8 @@ nsurgn_scan_build_artifacts() {
     artifact_id="G${artifact_index}"
     member_key="${group_key}"$'\t'"${leader_pid}"
     leader_ns_pid="${member_ns_pid[$member_key]:--}"
+    artifact_cgroup_hint="${aggregate_cgroup_hint[$group_key]:--}"
+    artifact_runtime_hint="$(nsurgn_scan_runtime_hint_for_cgroup_hint "$artifact_cgroup_hint")"
     score=0
     major_namespace_diff=0
     nested_pid_init_evidence=0
@@ -1202,8 +1244,8 @@ nsurgn_scan_build_artifacts() {
       "$leader_pid" \
       "$leader_ns_pid" \
       "${process_count[$group_key]}" \
-      - \
-      - \
+      "$artifact_runtime_hint" \
+      "$artifact_cgroup_hint" \
       - \
       "$leader_reason" >>"$artifact_file"
 
