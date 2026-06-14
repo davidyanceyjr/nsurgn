@@ -1031,6 +1031,90 @@ run_cgroup_grouping_contract() {
   rm -rf "$tmpdir"
 }
 
+run_cgroup_classification_contract() {
+  local tmpdir process_file artifact_file artifact_process_file host_profile_file classification_reason_file cgroup_file cgroup_summary_file
+
+  tmpdir="$(mktemp -d)"
+  process_file="${tmpdir}/process.tsv"
+  artifact_file="${tmpdir}/artifact.tsv"
+  artifact_process_file="${tmpdir}/artifact_process.tsv"
+  host_profile_file="${tmpdir}/host_profile.tsv"
+  classification_reason_file="${tmpdir}/classification_reason.tsv"
+  cgroup_file="${tmpdir}/process_cgroup.tsv"
+  cgroup_summary_file="${tmpdir}/process_cgroup_summary.tsv"
+  nsurgn_join_by_tab 1 5001 5002 5003 5004 5005 5006 5007 5008 ok >"$host_profile_file"
+
+  {
+    make_process_row_for_classification 101 5001 5002 5003 5004 5005 5006 5007 5008 101 10
+    make_process_row_for_classification 102 7001 5002 5003 5004 5005 5006 5007 5008 102 20
+    make_process_row_for_classification 103 8001 5002 5003 5004 5005 5006 5007 5008 103 30
+    make_process_row_for_classification 104 9001 5002 5003 5004 5005 5006 5007 5008 104 40
+    make_process_row_for_classification 105 10001 5002 5003 5004 5005 5006 5007 5008 105 50
+    make_process_row_for_classification 106 11001 5002 5003 5004 5005 5006 5007 5008 106 60
+  } >"$process_file"
+
+  {
+    nsurgn_join_by_tab 101 1 v2 0 - - /docker/host true
+    nsurgn_join_by_tab 102 1 v2 0 - - /docker/foo true
+    nsurgn_join_by_tab 102 2 v1 1 cpu cpu /docker/foo false
+    nsurgn_join_by_tab 103 1 v2 0 - - /kubepods.slice/pod123 true
+    nsurgn_join_by_tab 104 1 v2 0 - - /machine.slice/libvirt.scope true
+    nsurgn_join_by_tab 105 1 v2 0 - - /aabbccddeeff00112233445566778899 true
+    nsurgn_join_by_tab 106 1 v2 0 - - /machine.slice/docker/foo true
+  } >"$cgroup_file"
+
+  {
+    nsurgn_join_by_tab 101 ok cgroup:v2:/docker/host docker docker 1
+    nsurgn_join_by_tab 102 ok cgroup:v2:/docker/foo docker docker 2
+    nsurgn_join_by_tab 103 ok cgroup:v2:/kubepods.slice/pod123 kubepods kubernetes 1
+    nsurgn_join_by_tab 104 ok cgroup:v2:/machine.slice/libvirt.scope machine.slice systemd 1
+    nsurgn_join_by_tab 105 ok cgroup:v2:/aabbccddeeff00112233445566778899 container-id container-id 1
+    nsurgn_join_by_tab 106 ok cgroup:v2:/machine.slice/docker/foo docker docker 1
+  } >"$cgroup_summary_file"
+
+  nsurgn_scan_build_artifacts strict "$process_file" "$artifact_file" "$artifact_process_file" "$host_profile_file" "$classification_reason_file" ||
+    fail 'cgroup classification failed'
+
+  awk -F '\t' '
+    $2 == "pid=5001+mnt=5002+net=5003+user=5004+uts=5005+ipc=5006+cgroup=5007+time=5008" &&
+      $11 == "host" && $12 == "4" { host_cgroup=1 }
+    $2 == "pid=7001+mnt=5002+net=5003+user=5004+uts=5005+ipc=5006+cgroup=5007+time=5008" &&
+      $11 == "container-like" && $12 == "7" { docker=1 }
+    $2 == "pid=8001+mnt=5002+net=5003+user=5004+uts=5005+ipc=5006+cgroup=5007+time=5008" &&
+      $11 == "container-like" && $12 == "7" { kubepods=1 }
+    $2 == "pid=9001+mnt=5002+net=5003+user=5004+uts=5005+ipc=5006+cgroup=5007+time=5008" &&
+      $11 == "namespace-managed" && $12 == "5" { machine=1 }
+    $2 == "pid=10001+mnt=5002+net=5003+user=5004+uts=5005+ipc=5006+cgroup=5007+time=5008" &&
+      $11 == "container-like" && $12 == "5" { container_id=1 }
+    $2 == "pid=11001+mnt=5002+net=5003+user=5004+uts=5005+ipc=5006+cgroup=5007+time=5008" &&
+      $11 == "container-like" && $12 == "9" { docker_machine=1 }
+    END { exit host_cgroup && docker && kubepods && machine && container_id && docker_machine ? 0 : 1 }
+  ' "$artifact_file" ||
+    fail 'expected cgroup selectors to affect classification only with major namespace differences'
+
+  awk -F '\t' '
+    $2 == "cgroup_docker" { docker[$1] += 1 }
+    $2 == "cgroup_kubepods" { kubepods += 1 }
+    $2 == "cgroup_machine_slice" { machine[$1] += 1 }
+    $2 == "cgroup_container_id" { container_id += 1 }
+    END {
+      docker_once = 1
+      for (artifact_id in docker) {
+        if (docker[artifact_id] != 1) docker_once = 0
+      }
+      machine_seen = 0
+      for (artifact_id in machine) {
+        if (machine[artifact_id] == 1) machine_seen += 1
+        else machine_seen = -100
+      }
+      exit docker_once && kubepods == 1 && machine_seen == 2 && container_id == 1 ? 0 : 1
+    }
+  ' "$classification_reason_file" ||
+    fail 'expected cgroup classification reasons emitted once per artifact'
+
+  rm -rf "$tmpdir"
+}
+
 run_visible_artifact_contract() {
   local tmpdir artifact_file visible_artifact_file
 
@@ -1227,6 +1311,7 @@ run_artifact_leader_contract
 run_artifact_classification_contract
 run_artifact_cgroup_hint_contract
 run_cgroup_grouping_contract
+run_cgroup_classification_contract
 run_visible_artifact_contract
 run_list_raw_contract
 run_live_scan_workspace_contract

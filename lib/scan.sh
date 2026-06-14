@@ -386,6 +386,78 @@ nsurgn_scan_runtime_hint_for_cgroup_hint() {
   esac
 }
 
+nsurgn_scan_cgroup_reason_score_delta() {
+  local reason_code="$1"
+
+  case "$reason_code" in
+    cgroup_kubepods|cgroup_containerd|cgroup_docker|cgroup_crio|cgroup_libpod) printf '%s\n' 4 ;;
+    cgroup_lxc) printf '%s\n' 3 ;;
+    cgroup_machine_slice|cgroup_container_id) printf '%s\n' 2 ;;
+    *) return 1 ;;
+  esac
+}
+
+nsurgn_scan_cgroup_reason_candidates_for_path() {
+  local host_pid="$1"
+  local path="$2"
+  local component reason_code score_delta
+  local found_kubepods=0 found_containerd=0 found_docker=0 found_crio=0
+  local found_libpod=0 found_lxc=0 found_machine_slice=0 found_container_id=0
+  local path_components=()
+
+  IFS='/' read -r -a path_components <<<"$path"
+  for component in "${path_components[@]}"; do
+    [ -n "$component" ] || continue
+    case "$component" in
+      *kubepods*) found_kubepods=1 ;;
+    esac
+    case "$component" in
+      *containerd*) found_containerd=1 ;;
+    esac
+    case "$component" in
+      *docker*) found_docker=1 ;;
+    esac
+    case "$component" in
+      *crio*|*cri-o*) found_crio=1 ;;
+    esac
+    case "$component" in
+      *libpod*) found_libpod=1 ;;
+    esac
+    case "$component" in
+      *lxc*) found_lxc=1 ;;
+    esac
+    case "$component" in
+      *machine.slice*) found_machine_slice=1 ;;
+    esac
+    if nsurgn_scan_cgroup_component_has_container_id "$component"; then
+      found_container_id=1
+    fi
+  done
+
+  for reason_code in \
+    cgroup_kubepods \
+    cgroup_containerd \
+    cgroup_docker \
+    cgroup_crio \
+    cgroup_libpod \
+    cgroup_lxc \
+    cgroup_machine_slice \
+    cgroup_container_id; do
+    case "$reason_code" in
+      cgroup_kubepods) [ "$found_kubepods" -eq 1 ] || continue ;;
+      cgroup_containerd) [ "$found_containerd" -eq 1 ] || continue ;;
+      cgroup_docker) [ "$found_docker" -eq 1 ] || continue ;;
+      cgroup_crio) [ "$found_crio" -eq 1 ] || continue ;;
+      cgroup_libpod) [ "$found_libpod" -eq 1 ] || continue ;;
+      cgroup_lxc) [ "$found_lxc" -eq 1 ] || continue ;;
+      cgroup_machine_slice) [ "$found_machine_slice" -eq 1 ] || continue ;;
+      cgroup_container_id) [ "$found_container_id" -eq 1 ] || continue ;;
+    esac
+    score_delta="$(nsurgn_scan_cgroup_reason_score_delta "$reason_code")" || return "$?"
+    nsurgn_join_by_tab "$reason_code" "$score_delta" "pid=${host_pid},path=${path}"
+  done
+}
+
 nsurgn_scan_cgroup_hint_rank() {
   local cgroup_hint="$1"
 
@@ -937,15 +1009,16 @@ nsurgn_scan_build_artifacts() {
   local artifact_process_file="${4:-${NSURGN_SCAN_DIR}/artifact_process.tsv}"
   local host_profile_file="${5:-${NSURGN_SCAN_DIR}/host_profile.tsv}"
   local classification_reason_file="${6:-}"
-  local cgroup_summary_file
+  local cgroup_summary_file cgroup_file
   local process_row group_key host_pid
-  local cgroup_hint
+  local cgroup_hint cgroup_path cgroup_reason_rows cgroup_reason_row
+  local reason_code reason_score_delta reason_detail
   local pid_ns mnt_ns net_ns user_ns uts_ns ipc_ns cgroup_ns time_ns
   local start_time ns_pid read_status
   local artifact_index artifact_id member_pid sorted_keys leader_pid leader_ns_pid leader_reason role
   local namespace_type namespace_id group_component group_namespace_types
   local host_pid_ns host_mnt_ns host_net_ns host_user_ns host_uts_ns host_ipc_ns host_cgroup_ns host_time_ns
-  local member_key classification score major_namespace_diff nested_pid_init_evidence
+  local member_key classification score major_namespace_diff nested_pid_init_evidence container_like_evidence namespace_managed_evidence
   local artifact_cgroup_hint artifact_runtime_hint
   local _
   local keys=()
@@ -969,7 +1042,9 @@ nsurgn_scan_build_artifacts() {
   local -A fallback_pid=()
   local -A cgroup_group_key_by_pid=()
   local -A cgroup_hint_by_pid=()
+  local -A cgroup_reason_rows_by_pid=()
   local -A aggregate_cgroup_hint=()
+  local -A aggregate_cgroup_reason_rows=()
 
   if [ -n "${NSURGN_SCAN_DIR:-}" ] && [ -f "${NSURGN_SCAN_DIR}/process_cgroup_summary.tsv" ]; then
     cgroup_summary_file="${NSURGN_SCAN_DIR}/process_cgroup_summary.tsv"
@@ -987,6 +1062,24 @@ nsurgn_scan_build_artifacts() {
       cgroup_group_key_by_pid[$host_pid]="$group_key"
       cgroup_hint_by_pid[$host_pid]="$cgroup_hint"
     done <"$cgroup_summary_file"
+  fi
+
+  if [ -n "${NSURGN_SCAN_DIR:-}" ] && [ -f "${NSURGN_SCAN_DIR}/process_cgroup.tsv" ]; then
+    cgroup_file="${NSURGN_SCAN_DIR}/process_cgroup.tsv"
+  elif [ "$process_file" != "${process_file%/*}" ] && [ -f "${process_file%/*}/process_cgroup.tsv" ]; then
+    cgroup_file="${process_file%/*}/process_cgroup.tsv"
+  else
+    cgroup_file=''
+  fi
+
+  if [ -n "$cgroup_file" ]; then
+    while IFS=$'\t' read -r host_pid _ _ _ _ _ cgroup_path _; do
+      [ -n "${host_pid:-}" ] || continue
+      [ -n "${cgroup_path:-}" ] || continue
+      cgroup_reason_rows="$(nsurgn_scan_cgroup_reason_candidates_for_path "$host_pid" "$cgroup_path")" || return "$?"
+      [ -n "$cgroup_reason_rows" ] || continue
+      cgroup_reason_rows_by_pid[$host_pid]+="${cgroup_reason_rows}"$'\n'
+    done <"$cgroup_file"
   fi
 
   if [ -z "$classification_reason_file" ]; then
@@ -1115,6 +1208,7 @@ nsurgn_scan_build_artifacts() {
       aggregate_cgroup_ns[$group_key]='-'
       aggregate_time_ns[$group_key]='-'
       aggregate_cgroup_hint[$group_key]='-'
+      aggregate_cgroup_reason_rows[$group_key]=''
     fi
 
     process_count[$group_key]=$((process_count[$group_key] + 1))
@@ -1130,6 +1224,7 @@ nsurgn_scan_build_artifacts() {
     nsurgn_scan_update_namespace_aggregate "aggregate_cgroup_ns[$group_key]" "$cgroup_ns"
     nsurgn_scan_update_namespace_aggregate "aggregate_time_ns[$group_key]" "$time_ns"
     nsurgn_scan_update_cgroup_hint_aggregate "aggregate_cgroup_hint[$group_key]" "${cgroup_hint_by_pid[$host_pid]:--}"
+    aggregate_cgroup_reason_rows[$group_key]+="${cgroup_reason_rows_by_pid[$host_pid]:-}"
 
     nsurgn_is_uint "$host_pid" || continue
     case "$read_status" in
@@ -1203,6 +1298,8 @@ nsurgn_scan_build_artifacts() {
     score=0
     major_namespace_diff=0
     nested_pid_init_evidence=0
+    container_like_evidence=0
+    namespace_managed_evidence=0
 
     nsurgn_scan_add_namespace_diff_score "$artifact_id" pid "${aggregate_pid_ns[$group_key]}" "$host_pid_ns" "$classification_reason_file" score major_namespace_diff
     nsurgn_scan_add_namespace_diff_score "$artifact_id" mnt "${aggregate_mnt_ns[$group_key]}" "$host_mnt_ns" "$classification_reason_file" score major_namespace_diff
@@ -1219,9 +1316,35 @@ nsurgn_scan_build_artifacts() {
       nsurgn_join_by_tab "$artifact_id" nested_pid_init 4 "pid=${leader_pid}" >>"$classification_reason_file"
     fi
 
+    declare -A seen_cgroup_reason=()
+    while IFS= read -r cgroup_reason_row; do
+      [ -n "$cgroup_reason_row" ] || continue
+      IFS=$'\t' read -r reason_code reason_score_delta reason_detail <<<"$cgroup_reason_row"
+      [ -n "${reason_code:-}" ] || continue
+      [ -z "${seen_cgroup_reason[$reason_code]+x}" ] || continue
+      seen_cgroup_reason[$reason_code]=1
+      case "$reason_code" in
+        cgroup_kubepods|cgroup_containerd|cgroup_docker|cgroup_crio|cgroup_libpod|cgroup_lxc|cgroup_container_id)
+          container_like_evidence=1
+          ;;
+        cgroup_machine_slice)
+          namespace_managed_evidence=1
+          ;;
+        *)
+          continue
+          ;;
+      esac
+      nsurgn_is_uint "$reason_score_delta" || return 1
+      score=$((score + reason_score_delta))
+      nsurgn_join_by_tab "$artifact_id" "$reason_code" "$reason_score_delta" "$reason_detail" >>"$classification_reason_file"
+    done <<<"${aggregate_cgroup_reason_rows[$group_key]}"
+    unset seen_cgroup_reason
+
     classification='host'
     if [ "$major_namespace_diff" -eq 1 ]; then
-      if [ "$nested_pid_init_evidence" -eq 1 ]; then
+      if [ "$container_like_evidence" -eq 1 ]; then
+        classification='container-like'
+      elif [ "$nested_pid_init_evidence" -eq 1 ] || [ "$namespace_managed_evidence" -eq 1 ]; then
         classification='namespace-managed'
       else
         classification='isolated'

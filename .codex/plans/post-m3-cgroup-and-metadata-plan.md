@@ -69,7 +69,7 @@ Validation:
 - `bash -n lib/scan.sh test/smoke.sh`.
 - `./test/smoke.sh`.
 
-Status: in progress in the current working tree; needs fresh validation before being treated as complete.
+Status: complete. Validated with focused smoke coverage, `bash -n lib/scan.sh test/smoke.sh`, and `./test/smoke.sh`.
 
 ### C2 Cgroup Artifact Grouping
 
@@ -95,7 +95,7 @@ Validation:
 - Live `./bin/nsurgn --host-pid $$ --group cgroup list`.
 - Live `./bin/nsurgn --host-pid $$ --include-host --group cgroup list`.
 
-Status: in progress in the current working tree; needs fresh validation before being treated as complete.
+Status: complete. Validated with focused smoke coverage, `./test/smoke.sh`, and live `list` checks for `--group cgroup`.
 
 ### C3 Artifact Cgroup And Runtime Hint Aggregation
 
@@ -123,7 +123,7 @@ Validation:
 - Focused smoke coverage for mixed member hints and missing summaries.
 - Existing raw `list` smoke coverage still passes.
 
-Status: in progress in the current working tree; this is the immediate implementation slice.
+Status: complete. Validated with focused smoke coverage for profile and cgroup grouping, plus existing raw `list` smoke coverage.
 
 ### C4 Cgroup Classification Reasons And Labels
 
@@ -158,7 +158,7 @@ Validation:
 - Focused smoke coverage for kubepods/docker/container-id/machine.slice selectors.
 - Classification reason count checks to prevent duplicate reason rows.
 
-Status: planned after C3.
+Status: complete. Validated with focused smoke coverage for kubepods, docker, container-id, machine.slice, duplicate reason suppression, and cgroup selector label precedence.
 
 ### C5 Cgroup Stage Finalization
 
@@ -185,7 +185,7 @@ Validation:
 - `shellcheck -x bin/nsurgn lib/cli.sh lib/commands.sh lib/doctor.sh lib/errors.sh lib/scan.sh lib/util.sh test/smoke.sh`.
 - Live raw `list` checks for default, `--include-host`, `--group cgroup`, and `--include-host --group cgroup`.
 
-Status: planned after C4.
+Status: in progress. Local syntax, smoke, ShellCheck, and live raw `list` checks passed after C4. Remaining work is final diff review, commit, and merge flow.
 
 ## Branch And Merge Plan
 
@@ -239,5 +239,4 @@ Start the shared target-resolution helpers needed by `inspect`, `ps`, `report`, 
 
 ## Open Questions
 
-- Should C4 cgroup classification reasons land before merging this branch, or should the branch merge after C3 with C4 as the first slice on a new classification branch?
 - Should the next branch focus narrowly on command metadata (`cmdline`/`comm`) or broader process metadata (`cmdline`/`comm`/`root`/`exe`)?
