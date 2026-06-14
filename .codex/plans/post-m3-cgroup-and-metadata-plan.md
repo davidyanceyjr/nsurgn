@@ -1,6 +1,6 @@
 # Post-M3 Cgroup And Metadata Plan
 
-Plan Status: active
+Plan Status: complete
 
 Source of truth:
 
@@ -185,7 +185,7 @@ Validation:
 - `shellcheck -x bin/nsurgn lib/cli.sh lib/commands.sh lib/doctor.sh lib/errors.sh lib/scan.sh lib/util.sh test/smoke.sh`.
 - Live raw `list` checks for default, `--include-host`, `--group cgroup`, and `--include-host --group cgroup`.
 
-Status: in progress. Local syntax, smoke, ShellCheck, and live raw `list` checks passed after C4. Remaining work is final diff review, commit, and merge flow.
+Status: complete. Final diff review found only cgroup-stage and planning/handoff artifacts. Validated on 2026-06-14 with `bash -n bin/nsurgn lib/*.sh test/smoke.sh`, `./test/smoke.sh`, `shellcheck -x bin/nsurgn lib/cli.sh lib/commands.sh lib/doctor.sh lib/errors.sh lib/scan.sh lib/util.sh test/smoke.sh`, `git diff --check`, and live raw `list` checks for default, `--include-host`, `--group cgroup`, and `--include-host --group cgroup`.
 
 ## Branch And Merge Plan
 
